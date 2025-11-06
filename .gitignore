@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Environments
+.venv/
+.env
+.env.*
+
+# Streamlit
+.streamlit/secrets.toml
+.streamlit/credentials.toml
+
+# Data & artifacts
+/data/
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node/npm (if any)
+node_modules/

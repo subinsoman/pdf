@@ -1,0 +1,9 @@
+streamlit>=1.37.0
+scikit-learn>=1.4.0
+PyPDF2>=3.0.1
+pandas>=2.2.0
+numpy>=1.26.0
+streamlit-option-menu>=0.3.12
+streamlit-oauth==0.1.14
+requests>=2.31.0
+streamlit-cookies-manager>=0.2.0
