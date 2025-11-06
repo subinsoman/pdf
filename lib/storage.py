@@ -49,3 +49,8 @@ class ProductStore:
         if not found:
             products.append(product)
         self._save(products)
+
+    def delete(self, product_id: str):
+        products = self._load()
+        products = [p for p in products if p.get("id") != product_id]
+        self._save(products)

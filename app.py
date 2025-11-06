@@ -854,13 +854,26 @@ with st.sidebar:
             },
             key="sidebar_menu",
         )
+        if side_selected != page:
+            # Clear relevant UI state and caches on navigation
+            for k in ["kb_selected_rows", "kb_pg_ed", "kb_search", "kb_ps_ed"]:
+                try:
+                    if k in st.session_state:
+                        del st.session_state[k]
+                except Exception:
+                    pass
+            try:
+                st.cache_data.clear()
+            except Exception:
+                pass
+            try:
+                st.cache_resource.clear()
+            except Exception:
+                pass
+            st.session_state["nav_page"] = side_selected
+            page = side_selected
     except Exception:
-        side_selected = st.radio("", _options, index=_default_index, key="sidebar_menu_fallback")
-    if side_selected != page:
-        page = side_selected
-        st.session_state["nav_page"] = page
-
-
+        pass
 
 # Ensure 'page' is defined even if sidebar failed to render option_menu
 if 'page' not in locals() or not page:
@@ -951,67 +964,256 @@ if page == "Knowledge base":
     if not is_admin_user():
         st.info("This page is restricted to admins.")
     else:
-        st.markdown('<div class="app-card">', unsafe_allow_html=True)
-        st.markdown('<div class="app-section-title">Create product</div>', unsafe_allow_html=True)
-        with st.form("product_form"):
-            cols = st.columns([1,1])
-            with cols[0]:
-                name = st.text_input("Product name")
-            with cols[1]:
-                desc = st.text_input("Short description")
-            pdf_file = st.file_uploader("Upload product PDF", type=["pdf"]) 
-            submitted = st.form_submit_button("Create/Update Product")
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        if submitted:
-            if not name:
-                st.warning("Please enter a product name.")
-            elif not pdf_file:
-                st.warning("Please upload a product PDF.")
-            else:
-                # Save/Update product
-                product = store.get_by_name(name)
-                if product is None:
-                    product_id = str(uuid.uuid4())
-                else:
-                    product_id = product["id"]
-
-                # Persist PDF
-                pdf_path = os.path.join(PDF_DIR, f"{product_id}.pdf")
-                with open(pdf_path, "wb") as f:
-                    f.write(pdf_file.read())
-
-                # Extract & chunk text
-                try:
-                    text = extract_text_from_pdf(pdf_path)
-                    chunks = chunk_text(text)
-                except Exception as e:
-                    st.error(f"Failed to process PDF: {e}")
-                    chunks = []
-
-                # Persist product metadata
-                store.upsert({
-                    "id": product_id,
-                    "name": name,
-                    "description": desc or "",
-                    "pdf_path": pdf_path,
-                })
-
-                # Index text for retrieval
-                retriever.index_product(product_id, chunks)
-
-                st.success("Product saved and indexed successfully.")
-
-        # Product list
+        # Manage knowledge base (Edit/Delete only)
         products = store.list()
-        st.markdown('<div class="app-card">', unsafe_allow_html=True)
-        st.markdown('<div class="app-section-title">Existing products</div>', unsafe_allow_html=True)
+        # Create/Edit appears before the table; driven by previously selected rows (from session_state)
+        sel_rows_state = st.session_state.get("kb_selected_rows", [])
+        is_edit_state = len(sel_rows_state) == 1
+        st.markdown(f"**{'Edit knowledge base' if is_edit_state else 'Create knowledge base'}**")
+        with st.container():
+            if is_edit_state:
+                _pid = sel_rows_state[0].get("id")
+                _cur = next((p for p in products if p.get("id") == _pid), None) or {}
+                name_val = st.text_input("Name", value=_cur.get("name", ""), key=f"kb_ce_name_{_pid}")
+                desc_val = st.text_area("Description", value=_cur.get("description", ""), key=f"kb_ce_desc_{_pid}")
+                new_pdf = st.file_uploader("Replace PDF (optional)", type=["pdf"], key=f"kb_ce_edit_pdf_{_pid}")
+                cur_fname = os.path.basename(_cur.get("pdf_path", "")) if _cur.get("pdf_path") else "-"
+                st.caption(f"Current file: {cur_fname}")
+                if new_pdf is not None:
+                    try:
+                        st.caption(f"Selected new file: {getattr(new_pdf, 'name', 'uploaded.pdf')}")
+                    except Exception:
+                        pass
+                _c_by = _cur.get("created_by") or "-"
+                _c_at = _cur.get("created_at") or "-"
+                _u_by = _cur.get("updated_by") or "-"
+                _u_at = _cur.get("updated_at") or "-"
+                st.markdown(
+                    f"<div style='font-size:12px; color:#666;'>Created by <b>{_c_by}</b> on <b>{_c_at}</b> • Last updated by <b>{_u_by}</b> on <b>{_u_at}</b></div>",
+                    unsafe_allow_html=True,
+                )
+                if st.button("Save changes", key=f"kb_ce_save_{_pid}"):
+                    if (
+                        name_val != _cur.get("name") or
+                        desc_val != _cur.get("description") or
+                        new_pdf is not None
+                    ):
+                        user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                        # If a new PDF was uploaded, overwrite and re-index
+                        pdf_path = _cur.get("pdf_path", "")
+                        if new_pdf is not None and pdf_path:
+                            try:
+                                with open(pdf_path, "wb") as f:
+                                    f.write(new_pdf.read())
+                                try:
+                                    text = extract_text_from_pdf(pdf_path)
+                                    chunks = chunk_text(text)
+                                except Exception:
+                                    chunks = []
+                                try:
+                                    retriever.index_product(_pid, chunks)
+                                except Exception:
+                                    pass
+                            except Exception:
+                                pass
+                        store.upsert({
+                            "id": _pid,
+                            "name": name_val,
+                            "description": desc_val,
+                            "pdf_path": pdf_path,
+                            "emails": _cur.get("emails", []),
+                            # preserve creation metadata; update modification metadata
+                            "created_by": _cur.get("created_by"),
+                            "created_at": _cur.get("created_at"),
+                            "updated_by": user_email,
+                            "updated_at": datetime.now().isoformat(timespec="seconds"),
+                        })
+                        st.success("Saved changes.")
+                        st.rerun()
+                    else:
+                        st.info("No changes detected.")
+            else:
+                name_c = st.text_input("Product name", key="kb_ce_new_name")
+                desc_c = st.text_input("Short description", key="kb_ce_new_desc")
+                pdf_c = st.file_uploader("Upload product PDF", type=["pdf"], key="kb_ce_new_pdf")
+                if st.button("Create Product", key="kb_ce_new_submit"):
+                    if not name_c:
+                        st.warning("Please enter a product name.")
+                    elif not pdf_c:
+                        st.warning("Please upload a product PDF.")
+                    else:
+                        pid = str(uuid.uuid4())
+                        pdf_path = os.path.join(PDF_DIR, f"{pid}.pdf")
+                        with open(pdf_path, "wb") as f:
+                            f.write(pdf_c.read())
+                        try:
+                            text = extract_text_from_pdf(pdf_path)
+                            chunks = chunk_text(text)
+                        except Exception as e:
+                            st.error(f"Failed to process PDF: {e}")
+                            chunks = []
+                        user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                        emails_list: List[str] = [user_email] if user_email else []
+                        store.upsert({
+                            "id": pid,
+                            "name": name_c,
+                            "description": desc_c or "",
+                            "pdf_path": pdf_path,
+                            "emails": emails_list,
+                            # creation metadata; not editable via UI
+                            "created_by": user_email,
+                            "created_at": datetime.now().isoformat(timespec="seconds"),
+                            "updated_by": "",
+                            "updated_at": "",
+                        })
+                        retriever.index_product(pid, chunks)
+                        st.success("Product created and indexed successfully.")
+                        st.rerun()
+
+        # Native editable data table with search + pagination
         if products:
-            df = pd.DataFrame(products)[["name", "description", "id"]]
-            st.dataframe(df, width='stretch', hide_index=True)
-        else:
-            st.markdown('<div class="app-muted">No products yet.</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            st.markdown('<div class="app-card">', unsafe_allow_html=True)
+            st.markdown('<div class="app-section-title">Existing knowledges</div>', unsafe_allow_html=True)
+            # Toolbar + CSS
+            st.markdown(
+                """
+                <style>
+                  .kb-toolbar { display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:8px; }
+                  .kb-right { display:flex; gap:10px; align-items:center; }
+                  /* Constrain controls inside toolbar */
+                  .kb-toolbar .stSelectbox, .kb-toolbar .stTextInput { max-width: 100px; }
+                  .kb-toolbar .stTextInput input { max-width: 100px; }
+                  /* Make action icon buttons borderless in rows */
+                  .kb-rows .stButton>button {
+                    border: 0 !important;
+                    outline: none !important;
+                    background: transparent !important;
+                    box-shadow: none !important;
+                    padding: 0 6px !important;
+                    min-height: auto !important;
+                    line-height: 1 !important;
+                    cursor: pointer;
+                  }
+                  .kb-rows .stButton>button:hover {
+                    background: rgba(0,0,0,0.05) !important;
+                  }
+                  .kb-rows .stButton>button:focus,
+                  .kb-rows .stButton>button:focus-visible,
+                  .kb-rows .stButton>button:active {
+                    outline: none !important;
+                    box-shadow: none !important;
+                    background: transparent !important;
+                  }
+                  /* Tighten spacing between Edit (expander) and table */
+                  div[data-testid="stExpander"] { margin-bottom: 6px; }
+                  .kb-rows { margin-top: 0; }
+                  .kb-rows .kb-sep { height: 1px; background: #e5e7eb; margin: 6px 0; }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
+            st.markdown('<div class="kb-toolbar">', unsafe_allow_html=True)
+            col_left, col_mid, col_right = st.columns([0.18, 0.64, 0.18])
+            with col_left:
+                ps = st.selectbox(
+                    "Rows per page",
+                    [5, 10, 20],
+                    index=0,
+                    key="kb_ps_ed",
+                    label_visibility="visible",
+                )
+            with col_right:
+                q = st.text_input(
+                    "Search",
+                    key="kb_search",
+                    placeholder="Name, description, emails",
+                    label_visibility="visible",
+                )
+            st.markdown('</div>', unsafe_allow_html=True)
+            filtered = products
+            if q:
+                ql = q.strip().lower()
+                filtered = []
+                for p in products:
+                    name = (p.get("name") or "").lower()
+                    desc = (p.get("description") or "").lower()
+                    ems = ", ".join(p.get("emails", [])) .lower()
+                    if (ql in name) or (ql in desc) or (ql in ems):
+                        filtered.append(p)
+            # Pagination (after filtering)
+            if "kb_pg_ed" not in st.session_state: st.session_state["kb_pg_ed"] = 1
+            total = len(filtered)
+            pages = max((total + ps - 1) // ps, 1)
+            page = min(max(st.session_state.get("kb_pg_ed", 1), 1), pages)
+            start = (page - 1) * ps
+            end = min(start + ps, total)
+            page_items = filtered[start:end]
+
+            # Render read-only rows with in-row action icons
+            if not page_items:
+                st.markdown('<div class="app-muted">No products on this page.</div>', unsafe_allow_html=True)
+            else:
+                # Header
+                st.markdown('<div class="kb-rows">', unsafe_allow_html=True)
+                h1,h2,h3,h4,h5,h6,h7 = st.columns([2,3,2,2,2,2,1])
+                h1.markdown("**Name**")
+                h2.markdown("**Description**")
+                h3.markdown("**Created by**")
+                h4.markdown("**Created at**")
+                h5.markdown("**Updated by**")
+                h6.markdown("**Updated at**")
+                h7.markdown("**Actions**")
+                # Rows
+                for i, item in enumerate(page_items):
+                    pid = item.get("id")
+                    name = item.get("name","")
+                    desc = item.get("description","")
+                    cby = item.get("created_by","")
+                    cat = item.get("created_at","")
+                    uby = item.get("updated_by","")
+                    uat = item.get("updated_at","")
+                    cols = st.columns([2,3,2,2,2,2,1])
+                    cols[0].write(name)
+                    cols[1].write(desc)
+                    cols[2].write(cby)
+                    cols[3].write(cat)
+                    cols[4].write(uby)
+                    cols[5].write(uat)
+                    with cols[6]:
+                        c_a, c_b = st.columns([1,1])
+                        if c_a.button("✏️", key=f"kb_icon_edit_{pid}"):
+                            st.session_state["kb_selected_rows"] = [{"id": pid}]
+                            st.rerun()
+                        if c_b.button("🗑️", key=f"kb_icon_del_{pid}"):
+                            store.delete(pid)
+                            try:
+                                pdfp = os.path.join(PDF_DIR, f"{pid}.pdf")
+                                if os.path.exists(pdfp): os.remove(pdfp)
+                            except Exception:
+                                pass
+                            try:
+                                chunkp = os.path.join(TEXT_DIR, f"{pid}.json")
+                                if os.path.exists(chunkp): os.remove(chunkp)
+                            except Exception:
+                                pass
+                            st.success("Deleted 1 row.")
+                            st.rerun()
+                st.markdown('</div>', unsafe_allow_html=True)
+
+                nav_l, nav_c, nav_r = st.columns([1,2,1])
+                with nav_l:
+                    if st.button("<", disabled=(page<=1), key="kb_prev2"):
+                        st.session_state["kb_pg_ed"] = max(page-1, 1)
+                        st.rerun()
+                with nav_c:
+                    st.markdown(f"<div style='text-align:center; font-weight:500;'>Page {page} / {pages}</div>", unsafe_allow_html=True)
+                with nav_r:
+                    if st.button(">", disabled=(page>=pages), key="kb_next2"):
+                        st.session_state["kb_pg_ed"] = min(page+1, pages)
+                        st.rerun()
+
+                st.caption(f"Showing {end-start if total>0 else 0} of {total} entries. Page {page}/{pages}.")
+            st.markdown('</div>', unsafe_allow_html=True)
 
 # ---------------------- aarya Page ----------------------
 elif page == "aarya":
