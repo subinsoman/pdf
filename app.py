@@ -3,6 +3,7 @@ import warnings
 import requests
 import urllib.parse
 import io
+import base64
 import uuid
 import json
 from datetime import datetime
@@ -119,9 +120,9 @@ def _logout():
     st.session_state["user"] = None
     st.session_state["google_access_token"] = None
     st.session_state["show_profile"] = False
-    # Clear query params
+    # Set a flash query param so we can show an alert after rerun on the login screen
     try:
-        st.experimental_set_query_params()
+        st.experimental_set_query_params(logged_out="1")
     except Exception:
         pass
     # Clear user cookie
@@ -144,23 +145,29 @@ def _handle_logout_param():
 
 _handle_logout_param()
 
-# Restore user from cookie if session empty
+# Restore user from cookie if session empty, but do NOT restore right after logout
 if not st.session_state.get("user") and cookies is not None:
+    _qp_restore = {}
     try:
-        raw = cookies.get("user")
-        if raw:
-            data = json.loads(raw)
-            if isinstance(data, dict) and data.get("email"):
-                st.session_state["user"] = {
-                    "email": data.get("email"),
-                    "name": data.get("name") or data.get("email"),
-                    "picture": data.get("picture"),
-                    "sub": data.get("sub"),
-                }
+        _qp_restore = _read_query_params()
     except Exception:
-        pass
+        _qp_restore = {}
+    if "logged_out" not in _qp_restore:
+        try:
+            raw = cookies.get("user")
+            if raw:
+                data = json.loads(raw)
+                if isinstance(data, dict) and data.get("email"):
+                    st.session_state["user"] = {
+                        "email": data.get("email"),
+                        "name": data.get("name") or data.get("email"),
+                        "picture": data.get("picture"),
+                        "sub": data.get("sub"),
+                    }
+        except Exception:
+            pass
 
-# Profile dropdown visibility is controlled by session flag only (no URL navigation)
+# Profile dropdown visibility is controlled by session flag and a transparent button overlay on the chip
 
 store: ProductStore = st.session_state["store"]
 retriever: Retriever = st.session_state["retriever"]
@@ -204,6 +211,12 @@ st.markdown(
       html, body, [data-testid="stAppViewContainer"], [data-testid="stSidebar"] {
         font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
       }
+      /* Tweak padding: keep left/right as default; set only top to 1px */
+      .st-emotion-cache-liupi { padding-top: 1px !important; }
+      /* Main block container (stable selector) */
+      div[data-testid='stMainBlockContainer'] { padding-top: 1px !important; }
+      /* Fallback for older versions */
+      section.main > div.block-container { padding-top: 1px !important; }
       /* Hide Deploy button in toolbar */
       div[data-testid='stAppDeployButton'] { display: none !important; }
       /* Hide Streamlit MainMenu (cover multiple versions/selectors) */
@@ -356,7 +369,7 @@ def _render_auth():
                 # Lazy import to avoid NameError if the package isn't ready yet
                 from streamlit_oauth import OAuth2Component  # type: ignore
                 oauth2 = OAuth2Component(cid, csec, auth_url, token_url, token_url, revoke_url)
-                result = oauth2.authorize_button("Continue with Google", redir, scope="openid email profile", key="google")
+                result = oauth2.authorize_button("sign in with sixdee mail", redir, scope="openid email profile", key="google")
             except Exception:
                 had_error = True
             # Show fallback link only if button failed
@@ -370,7 +383,7 @@ def _render_auth():
                     "prompt": "consent"
                 }
                 qs = urllib.parse.urlencode(params, quote_via=urllib.parse.quote)
-                st.link_button("Login with Google (fallback)", f"{auth_url}?{qs}")
+                st.link_button("Sign in with Sixdee mail (fallback)", f"{auth_url}?{qs}")
             if result and isinstance(result, dict) and result.get("token"):
                 try:
                     tk = result["token"]["access_token"]
@@ -403,23 +416,273 @@ def _render_auth():
             st.markdown(f"**{u.get('name','User')}**\n\n{u.get('email','')}")
         with cols[2]:
             if st.button("Logout", use_container_width=True):
-                st.session_state["user"] = None
-                st.rerun()
+                _logout()
 
 # -------- Auth gate: require Google login before showing the app --------
 if not st.session_state.get("user"):
-    # Minimal login: hide sidebar and center only the Google button
+    # Hide sidebar and toolbar title; center a login card
     st.markdown(
         """
         <style>
           [data-testid="stSidebar"] { display: none !important; }
           div[data-testid='stToolbar']::before, div[data-testid='stToolbar']::after { content: none !important; }
-          [data-testid="stAppViewContainer"] > .main { display:flex; align-items:center; justify-content:center; min-height: 100vh; }
+          [data-testid="stAppViewContainer"] > .main { display:flex; align-items:center; justify-content:center; min-height: 96vh; background:#f5f6f8; }
+          /* Suppress any debug/testid labels that might appear */
+          div[data-testid='stMarkdownContainer']::before { content: none !important; }
+          div[data-testid='stMarkdownContainer'] { margin-top: 0; margin-bottom: 0; }
+
+          .login-wrap { width: 320px; max-width: 92vw; padding: 8px 0 4px; margin-left:auto; margin-right:auto; }
+          .login-logo { width:68px; height:68px; border-radius:50%; background:#f97316; display:flex; align-items:center; justify-content:center; margin: 8px auto 12px; box-shadow:0 6px 16px rgba(249,115,22,0.35); }
+          .login-logo img { width:36px; height:36px; display:block; }
+          .login-title { font-weight:700; font-size:20px; color:#111827; margin-top:4px; text-align:center; }
+          .login-right-link { font-size:12px; color:#2563eb; text-decoration:none; }
+          .login-field { margin-top:10px; }
+          .login-divider { height:1px; background:#e5e7eb; margin:14px auto; max-width: 320px; }
+          .login-google { margin-top:8px; max-width:320px; margin-left:auto; margin-right:auto; text-align: center; }
+          .login-google .stButton>button { width: 100% !important; max-width: 320px; margin: 0 auto; display:block; }
+          .login-google a { display:block; width:100%; max-width:320px; margin:0 auto; }
+          /* Target the OAuth button by its Streamlit key to ensure same width & centering */
+          div.st-key-google { max-width:320px; margin:0 auto; width:100%; }
+          div.st-key-google button { width:100% !important; max-width:320px; margin:0 auto; display:block; }
+          /* Aggressive width control for nested wrappers Streamlit adds around the OAuth component */
+          .login-google > div { max-width:320px !important; width:100% !important; margin:0 auto !important; box-sizing: border-box; }
+          .login-google [data-testid="stHorizontalBlock"] { max-width:320px !important; width:100% !important; margin:0 auto !important; }
+          .login-google [data-testid="stHorizontalBlock"] > div { max-width:320px !important; width:100% !important; margin:0 auto !important; }
+          .login-google [aria-live] { max-width:320px !important; width:100% !important; margin:0 auto !important; }
+          /* Make Sign In button full width and compact */
+          .login-wrap .stButton>button { width:100% !important; max-width:320px; margin: 8px auto 0; display:block; }
+          /* Orange filled Sign In button */
+          div.st-key-login_submit .stButton>button {
+            background: #F26D21 !important; /* screenshot orange */
+            color: #ffffff !important;
+            border: 1px solid #F26D21 !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+            font-size: 15.5px !important;
+            padding: 12px 14px !important; /* ~44px height */
+            min-height: 44px !important;
+          }
+          div.st-key-login_submit .stButton>button:hover { background:#F26D21 !important; border-color:#F26D21 !important; }
+          /* Fallback: center any Streamlit button container inside login wrap */
+          .login-wrap .stButton { display:block; max-width:320px; margin: 8px auto 0; }
+          /* Explicitly target keyed Sign In container to center it */
+          div.st-key-login_submit { max-width:320px; width:100%; margin: 8px auto 0; }
+          div.st-key-login_submit .stButton>button { width:100% !important; }
+          /* Google button look (official blue) */
+          .login-google .stButton>button, .login-google a, .login-google button, div.st-key-google button {
+            background: #4285F4 !important; /* Google blue per screenshot */
+            color: #fff !important;
+            border: 1px solid #4285F4 !important;
+            border-radius: 6px !important;
+            padding: 12px 14px 12px 56px !important; /* space for larger G badge */
+            font-weight: 600 !important;
+            font-size: 15.5px !important;
+            min-height: 44px !important;
+          }
+          .login-google .stButton>button:hover, .login-google a:hover, .login-google button:hover, div.st-key-google button:hover { background: #4285F4 !important; border-color:#4285F4 !important; }
+          /* Add Google badge (white square) and multi-color G icon */
+          .login-google .stButton>button,
+          .login-google a,
+          .login-google button,
+          div.st-key-google button { position: relative; overflow: visible; }
+          .login-google .stButton>button::before,
+          .login-google a::before,
+          .login-google button::before,
+          div.st-key-google button::before {
+            content: "";
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 34px;
+            height: 34px;
+            background: #ffffff;
+            border-radius: 4px;
+          }
+          .login-google .stButton>button::after,
+          .login-google a::after,
+          .login-google button::after,
+          div.st-key-google button::after {
+            content: "";
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 34px;
+            height: 34px;
+            background-repeat: no-repeat;
+            background-position: center;
+            background-size: 20px 20px;
+            background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 48 48'><path fill='%23FFC107' d='M43.6 20.5h-1.9v-.1H24v7.2h11.3c-1.6 4.5-5.9 7.8-11.3 7.8-6.5 0-11.9-5.3-11.9-11.9S17.5 11.6 24 11.6c3 0 5.7 1.1 7.8 2.9l5.1-5.1C33 6.2 28.7 4.5 24 4.5 12.8 4.5 3.9 13.4 3.9 24.6S12.8 44.7 24 44.7c10.6 0 19.4-8.6 19.4-20 0-1.3-.1-2.7-.4-4.2z'/><path fill='%23FF3D00' d='M6.3 14.7l5.9 4.3C14 15.7 18.6 11.6 24 11.6c3 0 5.7 1.1 7.8 2.9l5.1-5.1C33 6.2 28.7 4.5 24 4.5 16 4.5 9 9.1 6.3 14.7z'/><path fill='%234CAF50' d='M24 44.7c5.3 0 10.2-2 13.9-5.3l-6.4-5.2c-2 1.4-4.6 2.2-7.5 2.2-5.4 0-9.9-3.4-11.5-8.1l-5.9 4.6C9.3 39.6 16 44.7 24 44.7z'/><path fill='%231976D2' d='M43.6 20.5h-1.9v-.1H24v7.2h11.3c-.8 2.3-2.3 4.3-4.4 5.7l6.4 5.2c3.7-3.4 6.1-8.4 6.1-14.7 0-1.3-.1-2.7-.4-4.2z'/></svg>");
+          }
+          .login-muted { text-align:center; color:#6b7280; font-size:12px; margin-top:6px; }
+          /* Constrain Google auth area to same width as inputs */
+          .login-google [data-testid="stHorizontalBlock"] { max-width: 320px; margin: 0 auto; }
+          /* Limit width of specific login inputs and center */
+          div.st-key-login_email, div.st-key-login_password { max-width: 320px; margin: 6px auto; width: 100%; }
+          /* Explicitly target keyed Sign In container to center it */
+          div.st-key-login_submit { max-width:320px; width:100%; margin: 8px auto 0; }
+          div.st-key-login_submit .stButton>button { width:100% !important; }
+          /* Google button look (official blue) */
+          .login-google .stButton>button, .login-google a, .login-google button, div.st-key-google button {
+            background: #4285F4 !important; /* Google blue per screenshot */
+            color: #fff !important;
+            border: 1px solid #4285F4 !important;
+            border-radius: 6px !important;
+            padding: 10px 12px 10px 52px !important; /* leave space for G badge */
+            font-weight: 600 !important;
+          }
+          .login-google .stButton>button:hover, .login-google a:hover, .login-google button:hover, div.st-key-google button:hover { background: #4285F4 !important; border-color:#4285F4 !important; }
+          /* Orange filled Sign In button */
+          div.st-key-login_submit .stButton>button {
+            background: #F26D21 !important; /* screenshot orange */
+            color: #ffffff !important;
+            border: 1px solid #F26D21 !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+          }
+          div.st-key-login_submit .stButton>button:hover { background:#F26D21 !important; border-color:#F26D21 !important; }
+          /* Fallback: center any Streamlit button container inside login wrap */
+          .login-wrap .stButton { display:block; max-width:320px; margin: 8px auto 0; }
+          /* Add 'G' badge at left like the screenshot */
+          .login-google .stButton>button::before,
+          .login-google a::before,
+          .login-google button::before,
+          div.st-key-google button::before {
+            content: 'G';
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            line-height: 30px;
+            text-align: center;
+            color: #ffffff;
+            background: #3367D6; /* darker blue badge */
+            border-radius: 4px;
+            font-weight: 700;
+          }
+          .login-google .stButton>button, .login-google a, .login-google button, div.st-key-google button {
+            background: #4285F4 !important; /* Google blue per screenshot */
+            color: #fff !important;
+            border: 1px solid #4285F4 !important;
+            border-radius: 6px !important;
+            padding: 10px 12px 10px 52px !important; /* leave space for G badge */
+            font-weight: 600 !important;
+          }
+          .login-google .stButton>button:hover, .login-google a:hover, .login-google button:hover, div.st-key-google button:hover { background: #4285F4 !important; border-color:#4285F4 !important; }
+          /* Add 'G' badge at left like the screenshot */
+          .login-google .stButton>button::before,
+          .login-google a::before,
+          .login-google button::before,
+          div.st-key-google button::before {
+            content: 'G';
+            position: absolute;
+            left: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 30px;
+            height: 30px;
+            line-height: 30px;
+            text-align: center;
+            color: #ffffff;
+            background: #3367D6; /* darker blue badge */
+            border-radius: 4px;
+            font-weight: 700;
+          }
+          .login-muted { text-align:center; color:#6b7280; font-size:12px; margin-top:6px; }
+          /* Constrain Google auth area to same width as inputs */
+          .login-google [data-testid="stHorizontalBlock"] { max-width: 320px; margin: 0 auto; }
+          /* Limit width of specific login inputs and center */
+          div.st-key-login_email, div.st-key-login_password { max-width: 320px; margin: 6px auto; width: 100%; }
+          /* Explicitly target keyed Sign In container to center it */
+          div.st-key-login_submit { max-width:320px; width:100%; margin: 8px auto 0; }
+          div.st-key-login_submit .stButton>button { width:100% !important; }
+          /* Google button look (official blue) */
+          .login-google .stButton>button, .login-google a, .login-google button, div.st-key-google button {
+            background: #4285F4 !important; /* Google blue per screenshot */
+            color: #fff !important;
+            border: 1px solid #4285F4 !important;
+            border-radius: 6px !important;
+            padding: 10px 12px 10px 52px !important; /* leave space for G badge */
+            font-weight: 600 !important;
+          }
+          .login-google .stButton>button:hover, .login-google a:hover, .login-google button:hover, div.st-key-google button:hover { background: #4285F4 !important; border-color:#4285F4 !important; }
+          /* Orange filled Sign In button */
+          div.st-key-login_submit .stButton>button {
+            background: #F26D21 !important; /* screenshot orange */
+            color: #ffffff !important;
+            border: 1px solid #F26D21 !important;
+            border-radius: 8px !important;
+            font-weight: 600 !important;
+          }
+          div.st-key-login_submit .stButton>button:hover { background:#F26D21 !important; border-color:#F26D21 !important; }
+          /* Fallback: center any Streamlit button container inside login wrap */
+          .login-wrap .stButton { display:block; max-width:320px; margin: 8px auto 0; }
+          /* Explicitly target keyed Sign In container to center it */
+          div.st-key-login_submit { max-width:320px; width:100%; margin: 8px auto 0; }
+          div.st-key-login_submit .stButton>button { width:100% !important; }
+          /* Google button look (official blue) */
+          .login-google .stButton>button, .login-google a, .login-google button, div.st-key-google button {
+            background: #4285F4 !important; /* Google blue per screenshot */
+            color: #fff !important;
+            border: 1px solid #4285F4 !important;
+            border-radius: 6px !important;
+            padding: 10px 12px 10px 52px !important; /* leave space for G badge */
+            font-weight: 600 !important;
+          }
+          .login-google .stButton>button:hover, .login-google a:hover, .login-google button:hover, div.st-key-google button:hover { background: #4285F4 !important; border-color:#4285F4 !important; }
+          .login-muted { text-align:center; color:#6b7280; font-size:12px; margin-top:6px; }
+          /* Constrain Google auth area to same width as inputs */
+          .login-google [data-testid="stHorizontalBlock"] { max-width: 320px; margin: 0 auto; }
+          /* Limit width of specific login inputs and center */
+          div.st-key-login_email, div.st-key-login_password { max-width: 320px; margin: 6px auto; width: 100%; }
+          div.st-key-login_email [data-baseweb="input"], div.st-key-login_password [data-baseweb="input"] { max-width: 320px; margin: 0 auto; }
         </style>
         """,
         unsafe_allow_html=True,
     )
-    _render_auth()
+
+    # Optional logout flash
+    try:
+        _qp = _read_query_params()
+        if "logged_out" in _qp and ("1" in _qp.get("logged_out", [])):
+            st.success("You have been logged out.")
+            try:
+                st.experimental_set_query_params()
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Login card UI
+    st.markdown("<div class='login-card'>", unsafe_allow_html=True)
+    # Top logo in orange circle using embedded data URI for reliability
+    _logo_src = ""
+    try:
+        path = LOGO1_SVG_PATH if os.path.exists(LOGO1_SVG_PATH) else (LOGO_SVG_PATH if os.path.exists(LOGO_SVG_PATH) else None)
+        if path:
+            with open(path, "rb") as _f:
+                _b64 = base64.b64encode(_f.read()).decode("ascii")
+                _logo_src = f"data:image/svg+xml;base64,{_b64}"
+    except Exception:
+        _logo_src = ""
+    st.markdown(f"<div class='login-logo'><img src='{_logo_src}' alt='logo'/></div>", unsafe_allow_html=True)
+    # Render entire login stack inside the middle column for perfect centering
+    c1, c2, c3 = st.columns([1,2,1])
+    with c2:
+        st.markdown("<div class='login-wrap'>", unsafe_allow_html=True)
+        st.markdown("<div class='login-title'>Sign In</div>", unsafe_allow_html=True)
+        st.text_input("Email or Username", key="login_email")
+        st.text_input("Password", type="password", key="login_password")
+        st.button("Sign In", key="login_submit", use_container_width=True)
+        st.markdown("<div class='login-divider'></div>", unsafe_allow_html=True)
+        st.markdown("<div class='login-google'>", unsafe_allow_html=True)
+        _render_auth()
+        st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
+
     st.stop()
 
 # Inject logo into the Streamlit sidebar logo spacer (native location)
@@ -567,7 +830,7 @@ if st.session_state.get("user"):
           .tb-chip .avatar img { width:100%; height:100%; object-fit: cover; display:block; }
           .tb-chip .name span { font-size:13px; color:#111827; text-decoration:none; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display:block; }
           /* Profile dropdown */
-          .tb-profile { position: fixed; top: 44px; right: 16px; z-index: 2147483647; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.12); min-width: 260px; max-width: 320px; overflow:hidden; }
+          .tb-profile { position: fixed; top: 44px; right: 16px; z-index: 2147483651; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.12); min-width: 260px; max-width: 320px; overflow:hidden; }
           .tb-profile .row { display:flex; align-items:center; gap:12px; padding: 12px 14px; }
           .tb-profile .row + .row { border-top: 1px solid #f1f5f9; }
           .tb-profile .avatar-xl { width:40px; height:40px; border-radius:50%; background:#e5e7eb; color:#374151; display:flex; align-items:center; justify-content:center; font-size:16px; overflow:hidden; }
@@ -576,9 +839,11 @@ if st.session_state.get("user"):
           .tb-profile .email { font-size:12px; color:#6b7280; }
           .tb-profile .logout-btn { margin-left:auto; color:#ef4444; text-decoration:none; font-size:13px; }
           .tb-profile .logout-btn:hover { text-decoration: underline; }
+          .tb-profile, .tb-profile * { pointer-events: auto !important; }
           /* Transparent button overlay positioned over the chip to catch clicks */
           div.st-key-chip_toggle_btn { position: fixed; top: 8px; right: 16px; width: 200px; height: 36px; z-index: 2147483650; }
           div.st-key-chip_toggle_btn button { width: 100%; height: 100%; background: transparent !important; border: 0 !important; color: transparent !important; box-shadow: none !important; }
+          /* No extra visible logout button; handled via JS click on the text */
         </style>
         """,
         unsafe_allow_html=True,
@@ -596,6 +861,7 @@ if st.session_state.get("user"):
         "</div>"
     )
 
+    # Dropdown with a direct anchor link that navigates to ?logout=1
     dropdown_html = (
         "<div class='tb-profile'>"
         "  <div class='row'>"
@@ -604,23 +870,19 @@ if st.session_state.get("user"):
         f"      <div class='name'>{name_html}</div>"
         f"      <div class='email'>{u.get('email','')}</div>"
         "    </div>"
-        "    <span class='logout-btn' style='cursor:default;opacity:0.7'>Logout</span>"
+        "    <a class='logout-btn' href='./?logout=1' role='button'>Logout</a>"
         "  </div>"
         "</div>"
     ) if prof_on else ""
 
     # Render chip and dropdown
     st.markdown(chip_html + dropdown_html, unsafe_allow_html=True)
-    # Overlay a transparent Streamlit button to toggle the dropdown via session
-    if st.button(" ", key="chip_toggle_btn"):
-        st.session_state["show_profile"] = not st.session_state.get("show_profile", False)
-        st.rerun()
-    # Real Logout button (works even if the link is blocked); shown only when dropdown is open
-    if prof_on:
-        # Small spacer to avoid overlap
-        st.write("")
-        if st.button("Logout", key="logout_action_btn"):
-            _logout()
+    # Only render the overlay toggle button when dropdown is closed to avoid intercepting clicks
+    if not prof_on:
+        if st.button(" ", key="chip_toggle_btn"):
+            st.session_state["show_profile"] = True
+            st.rerun()
+    # No extra visible logout controls; link navigates with ?logout=1 which triggers server _logout()
 
 # ---------------------- Knowledge Base Page ----------------------
 if page == "Knowledge base":
