@@ -8,3 +8,9 @@ showErrorDetails = true
 
 [browser]
 gatherUsageStats = false
+
+[app]
+admin_users = [
+  "subin.soman@6dtech.co.in"
+  
+]

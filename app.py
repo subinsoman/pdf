@@ -4,6 +4,10 @@ import requests
 import urllib.parse
 import io
 import base64
+try:
+    import tomllib as _toml  # Python 3.11+
+except Exception:  # pragma: no cover
+    _toml = None
 import uuid
 import json
 from datetime import datetime
@@ -31,11 +35,64 @@ os.makedirs(TEXT_DIR, exist_ok=True)
 
 # ---------------------- Auth Helpers ----------------------
 def get_admin_password() -> str:
-    return st.secrets.get("ADMIN_PASSWORD", "admin")
+    # Prefer secrets, fallback to environment variable, then default
+    val = None
+    try:
+        val = st.secrets.get("ADMIN_PASSWORD") if hasattr(st, "secrets") else None
+    except Exception:
+        val = None
+    if not val:
+        val = os.getenv("ADMIN_PASSWORD")
+    return str(val) if val else "admin"
+
+
+def _get_admin_emails() -> List[str]:
+    emails: List[str] = []
+    # 1) Environment variable (comma-separated)
+    env_val = os.getenv("ADMIN_EMAILS", "").strip()
+    if env_val:
+        emails.extend([e.strip().lower() for e in env_val.split(",") if e.strip()])
+    # 2) Secrets (list or comma-separated string)
+    try:
+        sec_val = st.secrets.get("ADMIN_USERS", "") if hasattr(st, "secrets") else ""
+        if isinstance(sec_val, list):
+            emails.extend([str(e).strip().lower() for e in sec_val if str(e).strip()])
+        elif isinstance(sec_val, str) and sec_val.strip():
+            emails.extend([e.strip().lower() for e in sec_val.split(",") if e.strip()])
+    except Exception:
+        pass
+    # 3) .streamlit/config.toml under [app].admin_users
+    try:
+        cfg_path = os.path.join(os.path.dirname(__file__), ".streamlit", "config.toml")
+        if os.path.exists(cfg_path) and _toml is not None:
+            with open(cfg_path, "rb") as f:
+                data = _toml.load(f)
+            app_cfg = data.get("app", {}) if isinstance(data, dict) else {}
+            cfg_emails = app_cfg.get("admin_users", [])
+            if isinstance(cfg_emails, list):
+                emails.extend([str(e).strip().lower() for e in cfg_emails if str(e).strip()])
+    except Exception:
+        pass
+    # De-duplicate
+    out = []
+    seen = set()
+    for e in emails:
+        if e and e not in seen:
+            seen.add(e)
+            out.append(e)
+    return out
 
 
 def is_admin_authenticated() -> bool:
-    return st.session_state.get("is_admin", False)
+    # Password-based gate via session flag only
+    return bool(st.session_state.get("is_admin", False))
+
+
+def is_admin_user() -> bool:
+    """Return True if the logged-in user's email is present in admin list."""
+    user = st.session_state.get("user") or {}
+    email = (user.get("email") or "").strip().lower()
+    return bool(email) and (email in _get_admin_emails())
 
 
 def admin_login_form():
@@ -718,16 +775,9 @@ if _nav_logo_rel:
     )
 
 def _render_create_form(prefix: str = "dialog"):
-    if not is_admin_authenticated():
-        with st.form(f"admin_login_{prefix}"):
-            pwd = st.text_input("Admin password", type="password")
-            login = st.form_submit_button("Login")
-        if login:
-            if pwd == get_admin_password():
-                st.session_state["is_admin"] = True
-                st.success("Logged in as admin")
-            else:
-                st.error("Invalid password")
+    # Only admins (by email list) can create — no password fallback here
+    if not is_admin_user():
+        st.info("Admin access required to create products.")
         return
     with st.form(f"product_form_{prefix}"):
         name = st.text_input("Product name", key=f"name_{prefix}")
@@ -785,7 +835,9 @@ page = st.session_state.get("nav_page", "aarya")
 
 # Minimal sidebar navigation (clean, no captions)
 with st.sidebar:
-    _options = ["aarya", "Knowledge base"]
+    _options = ["aarya"]
+    if is_admin_user():
+        _options.append("Knowledge base")
     _default_index = 0 if page == "aarya" else 1
     try:
         side_selected = option_menu(
@@ -896,9 +948,8 @@ if page == "Knowledge base":
         unsafe_allow_html=True,
     )
 
-    if not is_admin_authenticated():
-        st.info("This page is restricted to admins. Please login.")
-        admin_login_form()
+    if not is_admin_user():
+        st.info("This page is restricted to admins.")
     else:
         st.markdown('<div class="app-card">', unsafe_allow_html=True)
         st.markdown('<div class="app-section-title">Create product</div>', unsafe_allow_html=True)
