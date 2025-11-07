@@ -15,6 +15,25 @@ warnings.filterwarnings("ignore", message=r".*st\.cache` is deprecated.*", categ
 import streamlit as st
 from streamlit_option_menu import option_menu
 import pandas as pd
+import sys
+import types
+# Compatibility shim: some third-party libs import json_normalize from pandas.io.json,
+# which was removed in pandas>=1.0. Provide a module alias to the top-level function.
+try:  # pragma: no cover
+    import pandas.io.json as _pd_json  # type: ignore
+    _ = getattr(_pd_json, "json_normalize")
+except Exception:  # pragma: no cover
+    try:
+        from pandas import json_normalize as _json_normalize
+        # Ensure parent package alias exists in sys.modules
+        sys.modules.setdefault("pandas.io", types.ModuleType("pandas.io"))
+        json_mod = types.ModuleType("pandas.io.json")
+        setattr(json_mod, "json_normalize", _json_normalize)
+        sys.modules["pandas.io.json"] = json_mod
+    except Exception:
+        pass
+from awesome_table import AwesomeTable
+from streamlit_extras.colored_header import colored_header
 from typing import List, Dict, Optional
 try:
     from streamlit_cookies_manager import EncryptedCookieManager  # type: ignore
@@ -200,7 +219,48 @@ def _handle_logout_param():
     if has_logout:
         _logout()
 
+def _handle_kb_action():
+    params = _read_query_params()
+    action = None
+    pid = None
+    try:
+        action = (params.get("kb_action", []) or [None])[0]
+        pid = (params.get("pid", []) or [None])[0]
+    except Exception:
+        action = None
+        pid = None
+    if action and pid:
+        if action == "edit":
+            st.session_state["kb_selected_rows"] = [{"id": pid}]
+            try:
+                st.experimental_set_query_params()  # clear
+            except Exception:
+                pass
+            st.rerun()
+        elif action == "delete":
+            try:
+                store.delete(pid)
+            except Exception:
+                pass
+            try:
+                pdfp = os.path.join(PDF_DIR, f"{pid}.pdf")
+                if os.path.exists(pdfp): os.remove(pdfp)
+            except Exception:
+                pass
+            try:
+                chunkp = os.path.join(TEXT_DIR, f"{pid}.json")
+                if os.path.exists(chunkp): os.remove(chunkp)
+            except Exception:
+                pass
+            st.success("Deleted 1 row.")
+            try:
+                st.experimental_set_query_params()  # clear
+            except Exception:
+                pass
+            st.rerun()
+
 _handle_logout_param()
+_handle_kb_action()
 
 # Restore user from cookie if session empty, but do NOT restore right after logout
 if not st.session_state.get("user") and cookies is not None:
@@ -1070,150 +1130,156 @@ if page == "Knowledge base":
                         st.success("Product created and indexed successfully.")
                         st.rerun()
 
-        # Native editable data table with search + pagination
+        # Inline editing table using Streamlit Data Editor
         if products:
-            st.markdown('<div class="app-card">', unsafe_allow_html=True)
-            st.markdown('<div class="app-section-title">Existing knowledges</div>', unsafe_allow_html=True)
-            # Toolbar + CSS
             st.markdown(
                 """
                 <style>
-                  .kb-toolbar { display:flex; gap:10px; align-items:center; justify-content:space-between; margin-bottom:8px; }
-                  .kb-right { display:flex; gap:10px; align-items:center; }
-                  /* Constrain controls inside toolbar */
-                  .kb-toolbar .stSelectbox, .kb-toolbar .stTextInput { max-width: 100px; }
-                  .kb-toolbar .stTextInput input { max-width: 100px; }
-                  /* Make action icon buttons borderless in rows */
-                  .kb-rows .stButton>button {
-                    border: 0 !important;
-                    outline: none !important;
-                    background: transparent !important;
-                    box-shadow: none !important;
-                    padding: 0 6px !important;
-                    min-height: auto !important;
-                    line-height: 1 !important;
-                    cursor: pointer;
-                  }
-                  .kb-rows .stButton>button:hover {
-                    background: rgba(0,0,0,0.05) !important;
-                  }
-                  .kb-rows .stButton>button:focus,
-                  .kb-rows .stButton>button:focus-visible,
-                  .kb-rows .stButton>button:active {
-                    outline: none !important;
-                    box-shadow: none !important;
-                    background: transparent !important;
-                  }
-                  /* Tighten spacing between Edit (expander) and table */
-                  div[data-testid="stExpander"] { margin-bottom: 6px; }
-                  .kb-rows { margin-top: 0; }
-                  .kb-rows .kb-sep { height: 1px; background: #e5e7eb; margin: 6px 0; }
+                  .kb-header { margin-bottom: 8px !important; padding-bottom: 0 !important; }
                 </style>
+                <div class="kb-header"><strong>Existing knowledges</strong></div>
                 """,
-                unsafe_allow_html=True,
+                unsafe_allow_html=True
             )
-            st.markdown('<div class="kb-toolbar">', unsafe_allow_html=True)
-            col_left, col_mid, col_right = st.columns([0.18, 0.64, 0.18])
-            with col_left:
-                ps = st.selectbox(
-                    "Rows per page",
-                    [5, 10, 20],
-                    index=0,
-                    key="kb_ps_ed",
-                    label_visibility="visible",
-                )
-            with col_right:
-                q = st.text_input(
-                    "Search",
-                    key="kb_search",
-                    placeholder="Name, description, emails",
-                    label_visibility="visible",
-                )
-            st.markdown('</div>', unsafe_allow_html=True)
-            filtered = products
-            if q:
-                ql = q.strip().lower()
-                filtered = []
-                for p in products:
-                    name = (p.get("name") or "").lower()
-                    desc = (p.get("description") or "").lower()
-                    ems = ", ".join(p.get("emails", [])) .lower()
-                    if (ql in name) or (ql in desc) or (ql in ems):
-                        filtered.append(p)
-            # Pagination (after filtering)
-            if "kb_pg_ed" not in st.session_state: st.session_state["kb_pg_ed"] = 1
-            total = len(filtered)
-            pages = max((total + ps - 1) // ps, 1)
-            page = min(max(st.session_state.get("kb_pg_ed", 1), 1), pages)
-            start = (page - 1) * ps
-            end = min(start + ps, total)
-            page_items = filtered[start:end]
-
-            # Render read-only rows with in-row action icons
-            if not page_items:
-                st.markdown('<div class="app-muted">No products on this page.</div>', unsafe_allow_html=True)
+            rows = []
+            for p in products:
+                rows.append({
+                    "Product name": p.get("name", ""),
+                    "Description": p.get("description", ""),
+                    "Created by": p.get("created_by", ""),
+                    "Created at": p.get("created_at", ""),
+                    "Updated by": p.get("updated_by", ""),
+                    "Updated at": p.get("updated_at", ""),
+                    "Select": False,
+                    "_id": p.get("id")
+                })
+            df = pd.DataFrame(rows)
+            # Include hidden _id column to keep a stable row identity even if user sorts in the editor
+            # Place 'Select' as the first column as requested
+            display_cols = ["Select", "Product name", "Description", "Created by", "Created at", "Updated by", "Updated at", "_id"]
+            if df.empty:
+                st.info("No products available.")
             else:
-                # Header
-                st.markdown('<div class="kb-rows">', unsafe_allow_html=True)
-                h1,h2,h3,h4,h5,h6,h7 = st.columns([2,3,2,2,2,2,1])
-                h1.markdown("**Name**")
-                h2.markdown("**Description**")
-                h3.markdown("**Created by**")
-                h4.markdown("**Created at**")
-                h5.markdown("**Updated by**")
-                h6.markdown("**Updated at**")
-                h7.markdown("**Actions**")
-                # Rows
-                for i, item in enumerate(page_items):
-                    pid = item.get("id")
-                    name = item.get("name","")
-                    desc = item.get("description","")
-                    cby = item.get("created_by","")
-                    cat = item.get("created_at","")
-                    uby = item.get("updated_by","")
-                    uat = item.get("updated_at","")
-                    cols = st.columns([2,3,2,2,2,2,1])
-                    cols[0].write(name)
-                    cols[1].write(desc)
-                    cols[2].write(cby)
-                    cols[3].write(cat)
-                    cols[4].write(uby)
-                    cols[5].write(uat)
-                    with cols[6]:
-                        c_a, c_b = st.columns([1,1])
-                        if c_a.button("✏️", key=f"kb_icon_edit_{pid}"):
+                # Place a container BEFORE the table to render the action bar above the table header
+                ab_container = st.container()
+                edited = st.data_editor(
+                    df[display_cols],
+                    key="kb_inline_de",
+                    hide_index=True,
+                    width='stretch',
+                    column_config={
+                        "Product name": st.column_config.TextColumn(disabled=False),
+                        "Description": st.column_config.TextColumn(disabled=False),
+                        "Created by": st.column_config.TextColumn(disabled=True),
+                        "Created at": st.column_config.TextColumn(disabled=True),
+                        "Updated by": st.column_config.TextColumn(disabled=True),
+                        "Updated at": st.column_config.TextColumn(disabled=True),
+                        "Select": st.column_config.CheckboxColumn(help="Select one row to enable Edit"),
+                        "_id": st.column_config.TextColumn(label="ID", disabled=True),
+                    },
+                )
+                # Render the action bar INTO the container we placed before the table
+                with ab_container:
+                    st.markdown(
+                        """
+                        <style>
+                          /* Target Streamlit layout wrapper divs to remove default spacing */
+                          .kb-action-btn [data-testid="stHorizontalBlock"] { gap: 0 !important; padding: 0 !important; margin: 0 !important; }
+                          .kb-action-btn [data-testid="column"] { padding: 0 !important; margin: 0 !important; }
+                          .kb-action-btn .element-container { padding: 0 !important; margin: 0 !important; }
+                          .kb-action-btn [class*="stLayoutWrapper"] { padding: 0 !important; margin: 0 !important; }
+                          /* Remove all spacing from action button containers */
+                          .kb-action-btn { margin: 0 !important; padding: 0 !important; }
+                          .kb-action-btn .stButton { margin: 0 !important; padding: 0 !important; }
+                          .kb-action-btn .stButton>button {
+                            background: transparent !important;
+                            border: none !important;
+                            box-shadow: none !important;
+                            padding: 0 !important;
+                            margin: 0 !important;
+                            min-height: auto !important;
+                            border-radius: 0 !important;
+                            color: #475569 !important;
+                            font-size: 18px !important;
+                            line-height: 1 !important;
+                          }
+                          .kb-action-btn .stButton>button:hover { background: transparent !important; opacity: 0.7 !important; }
+                          .kb-action-btn .stButton>button:active { background: transparent !important; }
+                          .kb-action-btn .stButton>button:focus { background: transparent !important; outline: none !important; box-shadow: none !important; }
+                          .kb-action-btn .stButton>button:disabled { opacity: 0.3; cursor: not-allowed; }
+                        </style>
+                        """,
+                        unsafe_allow_html=True,
+                    )
+                    # Use columns to force right alignment
+                    spacer, btn_del, btn_edit = st.columns([0.92, 0.04, 0.04])
+                    with btn_del:
+                        st.markdown('<div class="kb-action-btn">', unsafe_allow_html=True)
+                        if st.button("🗑️", disabled=(len(edited.loc[edited["Select"] == True, "_id"].tolist()) == 0), key="kb_inline_delete_sel", help="Delete selected"):
+                            del_count = 0
+                            for pid in edited.loc[edited["Select"] == True, "_id"].tolist():
+                                try:
+                                    store.delete(pid)
+                                    del_count += 1
+                                except Exception:
+                                    pass
+                                try:
+                                    pdfp = os.path.join(PDF_DIR, f"{pid}.pdf")
+                                    if os.path.exists(pdfp): os.remove(pdfp)
+                                except Exception:
+                                    pass
+                                try:
+                                    chunkp = os.path.join(TEXT_DIR, f"{pid}.json")
+                                    if os.path.exists(chunkp): os.remove(chunkp)
+                                except Exception:
+                                    pass
+                            if del_count:
+                                st.success(f"Deleted {del_count} row(s).")
+                            else:
+                                st.info("No rows deleted.")
+                            st.rerun()
+                        st.markdown('</div>', unsafe_allow_html=True)
+                    with btn_edit:
+                        st.markdown('<div class="kb-action-btn">', unsafe_allow_html=True)
+                        if st.button("✏️", disabled=(len(edited.loc[edited["Select"] == True, "_id"].tolist()) != 1), key="kb_inline_edit_sel", help="Edit selected"):
+                            pid = edited.loc[edited["Select"] == True, "_id"].tolist()[0]
                             st.session_state["kb_selected_rows"] = [{"id": pid}]
                             st.rerun()
-                        if c_b.button("🗑️", key=f"kb_icon_del_{pid}"):
-                            store.delete(pid)
-                            try:
-                                pdfp = os.path.join(PDF_DIR, f"{pid}.pdf")
-                                if os.path.exists(pdfp): os.remove(pdfp)
-                            except Exception:
-                                pass
-                            try:
-                                chunkp = os.path.join(TEXT_DIR, f"{pid}.json")
-                                if os.path.exists(chunkp): os.remove(chunkp)
-                            except Exception:
-                                pass
-                            st.success("Deleted 1 row.")
-                            st.rerun()
-                st.markdown('</div>', unsafe_allow_html=True)
+                        st.markdown('</div>', unsafe_allow_html=True)
 
-                nav_l, nav_c, nav_r = st.columns([1,2,1])
-                with nav_l:
-                    if st.button("<", disabled=(page<=1), key="kb_prev2"):
-                        st.session_state["kb_pg_ed"] = max(page-1, 1)
+                # Auto-apply inline edits immediately (compare edited vs original df by _id)
+                try:
+                    original_by_id = {str(r["_id"]): r for _, r in df.iterrows()}
+                    updated_count = 0
+                    for _, row in edited.iterrows():
+                        pid = str(row.get("_id") or "")
+                        if not pid:
+                            continue
+                        cur = original_by_id.get(pid)
+                        if not cur:
+                            continue
+                        new_name = str(row.get("Product name") or "")
+                        new_desc = str(row.get("Description") or "")
+                        if new_name != (cur.get("Product name") or "") or new_desc != (cur.get("Description") or ""):
+                            cur_store = next((p for p in products if p.get("id") == pid), None)
+                            user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                            store.upsert({
+                                "id": pid,
+                                "name": new_name,
+                                "description": new_desc,
+                                "pdf_path": (cur_store or {}).get("pdf_path", ""),
+                                "emails": (cur_store or {}).get("emails", []),
+                                "created_by": (cur_store or {}).get("created_by", ""),
+                                "created_at": (cur_store or {}).get("created_at", ""),
+                                "updated_by": user_email,
+                                "updated_at": datetime.now().isoformat(timespec="seconds"),
+                            })
+                            updated_count += 1
+                    if updated_count:
+                        st.success(f"Updated {updated_count} row(s).")
                         st.rerun()
-                with nav_c:
-                    st.markdown(f"<div style='text-align:center; font-weight:500;'>Page {page} / {pages}</div>", unsafe_allow_html=True)
-                with nav_r:
-                    if st.button(">", disabled=(page>=pages), key="kb_next2"):
-                        st.session_state["kb_pg_ed"] = min(page+1, pages)
-                        st.rerun()
-
-                st.caption(f"Showing {end-start if total>0 else 0} of {total} entries. Page {page}/{pages}.")
-            st.markdown('</div>', unsafe_allow_html=True)
+                except Exception:
+                    pass
 
 # ---------------------- aarya Page ----------------------
 elif page == "aarya":
