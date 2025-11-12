@@ -52,6 +52,16 @@ TEXT_DIR = os.path.join(DATA_DIR, "texts")
 os.makedirs(PDF_DIR, exist_ok=True)
 os.makedirs(TEXT_DIR, exist_ok=True)
 
+# Load optional custom config from .streamlit/config.toml
+CONFIG_TOML: Dict[str, Dict] = {}
+try:
+    cfg_path = os.path.join(os.path.dirname(__file__), ".streamlit", "config.toml")
+    if _toml is not None and os.path.exists(cfg_path):
+        with open(cfg_path, "rb") as _cf:
+            CONFIG_TOML = _toml.load(_cf)  # type: ignore
+except Exception:
+    CONFIG_TOML = {}
+
 # ---------------------- Auth Helpers ----------------------
 def get_admin_password() -> str:
     # Prefer secrets, fallback to environment variable, then default
@@ -238,6 +248,56 @@ def _handle_kb_action():
                 pass
             st.rerun()
         elif action == "delete":
+            cur = None
+            try:
+                cur = store.get(pid)
+            except Exception:
+                cur = None
+            try:
+                upload_url = (str(
+                    (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
+                    or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
+                    or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
+                    or st.secrets.get("upload_url")
+                    or os.environ.get("CONFIG_URL")
+                    or os.environ.get("UPLOAD_WEBHOOK_URL")
+                    or ""
+                )).strip()
+            except Exception:
+                upload_url = ""
+            if not upload_url:
+                st.warning("Upload webhook URL not configured; delete webhook not sent.")
+            if upload_url and cur:
+                try:
+                    user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                    pdfp = cur.get("pdf_path", "") or os.path.join(PDF_DIR, f"{pid}.pdf")
+                    _payload = {
+                        "id": pid,
+                        "name": cur.get("name", ""),
+                        "operation": "delete",
+                        "description": cur.get("description", ""),
+                        "pdf_path": pdfp,
+                        "created_by": cur.get("created_by", ""),
+                        "created_at": cur.get("created_at", ""),
+                        "updated_by": user_email,
+                        "updated_at": datetime.now().isoformat(timespec="seconds"),
+                    }
+                    st.info(f"Calling delete webhook: {upload_url}")
+                    _resp = requests.post(
+                        upload_url,
+                        json=_payload,
+                        timeout=20,
+                    )
+                    try:
+                        _j = _resp.json()
+                        if bool(_j.get("success")):
+                            st.success(str(_j.get("message") or "Delete webhook acknowledged"))
+                        else:
+                            st.warning(str(_j.get("message") or "Delete webhook did not confirm success"))
+                    except Exception:
+                        st.warning(f"Delete webhook responded without JSON (status {getattr(_resp,'status_code',None)}): {getattr(_resp,'text', '')[:200]}")
+                except Exception:
+                    st.warning("Failed to call delete webhook")
             try:
                 store.delete(pid)
             except Exception:
@@ -1063,8 +1123,28 @@ if page == "Knowledge base":
                         pdf_path = _cur.get("pdf_path", "")
                         if new_pdf is not None and pdf_path:
                             try:
+                                _bytes = new_pdf.read()
                                 with open(pdf_path, "wb") as f:
-                                    f.write(new_pdf.read())
+                                    f.write(_bytes)
+                                try:
+                                    upload_url = (str(
+                                        (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
+                                        or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
+                                        or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
+                                        or st.secrets.get("upload_url")
+                                        or os.environ.get("CONFIG_URL")
+                                        or os.environ.get("UPLOAD_WEBHOOK_URL")
+                                        or ""
+                                    )).strip()
+                                except Exception:
+                                    upload_url = ""
+                                if not upload_url:
+                                    st.warning("Upload webhook URL not configured; delete webhook not sent.")
+                                if upload_url:
+                                    try:
+                                        pass
+                                    except Exception:
+                                        st.warning("Failed to call upload webhook")
                                 try:
                                     text = extract_text_from_pdf(pdf_path)
                                     chunks = chunk_text(text)
@@ -1076,6 +1156,70 @@ if page == "Knowledge base":
                                     pass
                             except Exception:
                                 pass
+                        # Always notify webhook for edit (with or without a new file)
+                        try:
+                            upload_url = (str(
+                                (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
+                                or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
+                                or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
+                                or st.secrets.get("upload_url")
+                                or os.environ.get("CONFIG_URL")
+                                or os.environ.get("UPLOAD_WEBHOOK_URL")
+                                or ""
+                            )).strip()
+                        except Exception:
+                            upload_url = ""
+                        if upload_url:
+                            try:
+                                try:
+                                    fname = getattr(new_pdf, "name", None)
+                                except Exception:
+                                    fname = None
+                                if not fname:
+                                    try:
+                                        fname = os.path.basename(pdf_path) or "uploaded.pdf"
+                                    except Exception:
+                                        fname = "uploaded.pdf"
+                                file_bytes = None
+                                try:
+                                    with open(pdf_path, "rb") as _f:
+                                        file_bytes = _f.read()
+                                except Exception:
+                                    file_bytes = None
+                                _data = {
+                                    "id": _pid,
+                                    "name": name_val,
+                                    "operation": "edit",
+                                    "description": desc_val,
+                                    "pdf_path": pdf_path,
+                                    "created_by": _cur.get("created_by", ""),
+                                    "created_at": _cur.get("created_at", ""),
+                                    "updated_by": user_email,
+                                    "updated_at": datetime.now().isoformat(timespec="seconds"),
+                                }
+                                if file_bytes is not None:
+                                    _resp = requests.post(
+                                        upload_url,
+                                        data=_data,
+                                        files={"file": (fname, file_bytes, "application/pdf")},
+                                        timeout=20,
+                                    )
+                                else:
+                                    _resp = requests.post(
+                                        upload_url,
+                                        data=_data,
+                                        timeout=20,
+                                    )
+                                try:
+                                    _j = _resp.json()
+                                    if bool(_j.get("success")):
+                                        st.success(str(_j.get("message") or "File uploaded successfully"))
+                                    else:
+                                        st.warning(str(_j.get("message") or "Upload webhook did not confirm success"))
+                                except Exception:
+                                    st.warning("Upload webhook responded without JSON")
+                            except Exception:
+                                st.warning("Failed to call upload webhook")
                         store.upsert({
                             "id": _pid,
                             "name": name_val,
@@ -1104,8 +1248,51 @@ if page == "Knowledge base":
                     else:
                         pid = str(uuid.uuid4())
                         pdf_path = os.path.join(PDF_DIR, f"{pid}.pdf")
+                        _bytes = pdf_c.read()
                         with open(pdf_path, "wb") as f:
-                            f.write(pdf_c.read())
+                            f.write(_bytes)
+                        try:
+                            upload_url = (str(
+                                (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
+                                or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
+                                or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
+                                or st.secrets.get("upload_url")
+                                or os.environ.get("CONFIG_URL")
+                                or os.environ.get("UPLOAD_WEBHOOK_URL")
+                                or ""
+                            )).strip()
+                        except Exception:
+                            upload_url = ""
+                        if upload_url:
+                            try:
+                                _fname = getattr(pdf_c, "name", "uploaded.pdf")
+                                user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                                _resp = requests.post(
+                                    upload_url,
+                                    data={
+                                        "id": pid,
+                                        "name": name_c,
+                                        "operation": "create",
+                                        "description": (desc_c or ""),
+                                        "pdf_path": pdf_path,
+                                        "created_by": user_email,
+                                        "created_at": datetime.now().isoformat(timespec="seconds"),
+                                        "updated_by": "",
+                                        "updated_at": "",
+                                    },
+                                    files={"file": (_fname, _bytes, "application/pdf")},
+                                    timeout=20,
+                                )
+                                try:
+                                    _j = _resp.json()
+                                    if bool(_j.get("success")):
+                                        st.success(str(_j.get("message") or "File uploaded successfully"))
+                                    else:
+                                        st.warning(str(_j.get("message") or "Upload webhook did not confirm success"))
+                                except Exception:
+                                    st.warning("Upload webhook responded without JSON")
+                            except Exception:
+                                st.warning("Failed to call upload webhook")
                         try:
                             text = extract_text_from_pdf(pdf_path)
                             chunks = chunk_text(text)
@@ -1218,6 +1405,51 @@ if page == "Knowledge base":
                         if st.button("🗑️", disabled=(len(edited.loc[edited["Select"] == True, "_id"].tolist()) == 0), key="kb_inline_delete_sel", help="Delete selected"):
                             del_count = 0
                             for pid in edited.loc[edited["Select"] == True, "_id"].tolist():
+                                # Call delete webhook (JSON body)
+                                try:
+                                    upload_url = (str(
+                                        (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
+                                        or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
+                                        or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
+                                        or st.secrets.get("upload_url")
+                                        or os.environ.get("CONFIG_URL")
+                                        or os.environ.get("UPLOAD_WEBHOOK_URL")
+                                        or ""
+                                    )).strip()
+                                except Exception:
+                                    upload_url = ""
+                                if not upload_url:
+                                    st.warning("Upload webhook URL not configured; delete webhook not sent.")
+                                if upload_url:
+                                    try:
+                                        cur = None
+                                        try:
+                                            cur = next((p for p in products if p.get("id") == pid), None) or store.get(pid)
+                                        except Exception:
+                                            cur = None
+                                        user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                                        pdfp = (cur or {}).get("pdf_path", "") or os.path.join(PDF_DIR, f"{pid}.pdf")
+                                        _payload = {
+                                            "id": pid,
+                                            "name": (cur or {}).get("name", ""),
+                                            "operation": "delete",
+                                            "description": (cur or {}).get("description", ""),
+                                            "pdf_path": pdfp,
+                                            "created_by": (cur or {}).get("created_by", ""),
+                                            "created_at": (cur or {}).get("created_at", ""),
+                                            "updated_by": user_email,
+                                            "updated_at": datetime.now().isoformat(timespec="seconds"),
+                                        }
+                                        st.info(f"Calling delete webhook: {upload_url}")
+                                        _r = requests.post(upload_url, json=_payload, timeout=10)
+                                        try:
+                                            _j = _r.json()
+                                            if not bool(_j.get("success")):
+                                                st.warning(str(_j.get("message") or "Delete webhook did not confirm success"))
+                                        except Exception:
+                                            st.warning(f"Delete webhook responded without JSON (status {getattr(_r,'status_code',None)}): {getattr(_r,'text','')[:200]}")
+                                    except Exception:
+                                        st.warning("Failed to call delete webhook for selected row")
                                 try:
                                     store.delete(pid)
                                     del_count += 1

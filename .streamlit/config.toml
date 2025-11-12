@@ -14,3 +14,7 @@ admin_users = [
   "subin.soman@6dtech.co.in"
   
 ]
+
+[custom]
+# n8n upload webhook endpoint for PDF uploads
+UPLOAD_WEBHOOK_URL = "http://10.0.13.74:443/webhook/8e60faca-ef27-4ec4-a761-72ceb053033d"
