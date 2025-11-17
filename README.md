@@ -72,8 +72,4 @@ Open: http://127.0.0.1:8000
 
 ## Troubleshooting
 - If you see `redirect_uri_mismatch`, ensure the redirect URI matches in both secrets and Google Console.
-- If you keep returning to login on refresh, ensure you’re opening 127.0.0.1 (not 0.0.0.0) and that cookies are enabled.
-- To suppress Streamlit’s `st.cache` deprecation notice at startup, run:
-  ```bash
-  PYTHONWARNINGS="ignore::DeprecationWarning" streamlit run app.py
-  ```
+- If you keep returning to login on refresh, ensure you're opening 127.0.0.1 (not 0.0.0.0) and that cookies are enabled.

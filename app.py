@@ -1,9 +1,13 @@
 import os
 import warnings
+# Suppress st.cache deprecation warnings from third-party libraries
+warnings.filterwarnings("ignore", message=".*st\\.cache.*is deprecated.*")
 import requests
 import urllib.parse
 import io
 import base64
+import ssl
+import time
 try:
     import tomllib as _toml  # Python 3.11+
 except Exception:  # pragma: no cover
@@ -11,7 +15,6 @@ except Exception:  # pragma: no cover
 import uuid
 import json
 from datetime import datetime
-warnings.filterwarnings("ignore", message=r".*st\.cache` is deprecated.*", category=DeprecationWarning)
 import streamlit as st
 from streamlit_option_menu import option_menu
 import pandas as pd
@@ -36,13 +39,19 @@ from awesome_table import AwesomeTable
 from streamlit_extras.colored_header import colored_header
 from typing import List, Dict, Optional
 try:
-    from streamlit_cookies_manager import EncryptedCookieManager  # type: ignore
+    from websocket import create_connection  # type: ignore
 except Exception:
+    create_connection = None  # type: ignore
+try:
+    from streamlit_cookies_manager import EncryptedCookieManager  # type: ignore
+except Exception:  # pragma: no cover
     EncryptedCookieManager = None  # type: ignore
 
 from lib.storage import ProductStore
+from lib.db_config import DatabaseConfig
 from lib.pdf_utils import extract_text_from_pdf, chunk_text
 from lib.retriever import Retriever
+from lib.pdf_metadata_repo import PdfMetadataRepository
 # OAuth component will be lazy-imported inside the auth function to avoid NameError interruptions
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -61,6 +70,119 @@ try:
             CONFIG_TOML = _toml.load(_cf)  # type: ignore
 except Exception:
     CONFIG_TOML = {}
+
+# ---------------------- Config + DB Helpers ----------------------
+DB_CONFIG = DatabaseConfig(base_dir=os.path.dirname(__file__))
+
+def get_database_config() -> Dict:
+    """Return database configuration dict loaded from .streamlit/config.toml.
+
+    This uses DatabaseConfig helper so callers can access driver/host/port/user/etc.
+    """
+    return DB_CONFIG.as_dict()
+
+def get_database_url() -> str:
+    """Return a generic database URL based on [database] in config.toml."""
+    return DB_CONFIG.build_url()
+
+def get_database_engine(**kwargs):
+    """Return a SQLAlchemy Engine built from the configured database URL.
+
+    Extra keyword arguments are passed directly to sqlalchemy.create_engine.
+    """
+    return DB_CONFIG.create_engine(**kwargs)
+
+def get_pdf_metadata_repo() -> PdfMetadataRepository:
+    """Return a PdfMetadataRepository bound to the configured database engine.
+
+    This is read-only in the sense that callers should only use list/get
+    if they want to avoid mutating the database.
+    """
+    engine = get_database_engine()
+    return PdfMetadataRepository(engine)
+
+STATUS_LABELS = {
+    0: "New",
+    1: "Success",
+    2: "In Progress",
+    3: "Deleted",
+}
+
+def _enrich_rows_with_status_label(rows: List[Dict]) -> List[Dict]:
+    """Add a 'status_label' field to each row based on status code.
+    
+    Also filters out deleted rows (status=3) and converts datetime objects to strings.
+    """
+    filtered = []
+    for r in rows:
+        try:
+            code = int(r.get("status", 0))
+        except Exception:
+            code = 0
+        # Skip deleted entries
+        if code == 3:
+            continue
+        r["status_label"] = STATUS_LABELS.get(code, "Unknown")
+        
+        # Convert datetime objects to ISO strings for JSON compatibility
+        for k, v in r.items():
+            if isinstance(v, datetime):
+                r[k] = v.isoformat()
+        
+        filtered.append(r)
+    return filtered
+
+def _get_ws_url() -> str:
+    try:
+        url = (str(
+            (CONFIG_TOML.get("custom", {}) or {}).get("AARYA_WEBSOCKET_URL")
+            or CONFIG_TOML.get("AARYA_WEBSOCKET_URL")
+            or ((st.secrets.get("aarya_ws") if hasattr(st, "secrets") else None))
+            or os.environ.get("AARYA_WEBSOCKET_URL")
+            or ""
+        )).strip()
+    except Exception:
+        url = ""
+    return url
+
+def _get_workflow_id() -> str:
+    try:
+        wid = (str(
+            (CONFIG_TOML.get("custom", {}) or {}).get("WORKFLOW_ID")
+            or CONFIG_TOML.get("WORKFLOW_ID")
+            or ((st.secrets.get("workflow_id") if hasattr(st, "secrets") else None))
+            or os.environ.get("WORKFLOW_ID")
+            or ""
+        )).strip()
+    except Exception:
+        wid = ""
+    return wid
+
+def _ws_send_message(ws_url: str, payload: Dict) -> Optional[str]:
+    if not ws_url or create_connection is None:
+        return None
+    try:
+        opts = {}
+        try:
+            if ws_url.lower().startswith("wss://"):
+                opts = {"sslopt": {"cert_reqs": ssl.CERT_NONE}}  # ignore cert for internal/self-signed
+        except Exception:
+            opts = {}
+        ws = create_connection(ws_url, timeout=10, **opts)
+        ws.send(json.dumps(payload))
+        resp = ws.recv()
+        try:
+            ws.close()
+        except Exception:
+            pass
+        if isinstance(resp, (bytes, bytearray)):
+            try:
+                return resp.decode("utf-8", errors="ignore")
+            except Exception:
+                return None
+        return str(resp)
+    except Exception:
+        return None
 
 # ---------------------- Auth Helpers ----------------------
 def get_admin_password() -> str:
@@ -1085,7 +1207,8 @@ if page == "Knowledge base":
         st.info("This page is restricted to admins.")
     else:
         # Manage knowledge base (Edit/Delete only)
-        products = store.list()
+        repo = get_pdf_metadata_repo()
+        products = _enrich_rows_with_status_label(repo.list_all())
         # Create/Edit appears before the table; driven by previously selected rows (from session_state)
         sel_rows_state = st.session_state.get("kb_selected_rows", [])
         is_edit_state = len(sel_rows_state) == 1
@@ -1516,7 +1639,8 @@ if page == "Knowledge base":
 # ---------------------- aarya Page ----------------------
 elif page == "aarya":
 
-    products = store.list()
+    repo = get_pdf_metadata_repo()
+    products = _enrich_rows_with_status_label(repo.list_all())
     if not products:
         st.info("No products available. An admin must create one first.")
     else:
@@ -1564,20 +1688,47 @@ elif page == "aarya":
         # Modern chat input
         user_msg = st.chat_input("Ask about the selected product...")
         if user_msg:
-            try:
-                top = retriever.query(selected_id, user_msg, top_k=3)
-            except Exception as e:
-                top = []
-                st.error(f"Retrieval error: {e}")
-
-            context = "\n\n".join([c["text"] for c in top]) if top else ""
-            if context:
-                answer = (
-                    "Here are the most relevant excerpts from the product document:\n\n"
-                    + context
-                )
-            else:
-                answer = "Sorry, I couldn't find relevant information in the product PDF."
+            answer = None
+            ws_url = _get_ws_url()
+            if ws_url:
+                if "aarya_session_id" not in st.session_state:
+                    st.session_state["aarya_session_id"] = f"session_{uuid.uuid4().hex[:8]}_{int(time.time()*1000)}"
+                if "aarya_client_id" not in st.session_state:
+                    st.session_state["aarya_client_id"] = f"selfcare_{int(time.time()*1000)}_{str(uuid.uuid4().int)[-3:]}"
+                ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+                wid = _get_workflow_id()
+                msg_id = f"msg_id-{int(time.time()*1000)}"
+                payload = {
+                    "action": "sendMessage",
+                    "sessionId": st.session_state["aarya_session_id"],
+                    "route": "general",
+                    "chatInput": user_msg,
+                    "msg_id": msg_id,
+                    "knowledge_name": selected_name,
+                    "name": selected_name,
+                    "type": "message",
+                    "message": user_msg,
+                    "timestamp": ts,
+                    "client_id": st.session_state["aarya_client_id"],
+                    "workflow_id": wid,
+                }
+                resp = _ws_send_message(ws_url, payload)
+                if resp:
+                    answer = resp
+            if answer is None:
+                try:
+                    top = retriever.query(selected_id, user_msg, top_k=3)
+                except Exception as e:
+                    top = []
+                    st.error(f"Retrieval error: {e}")
+                context = "\n\n".join([c["text"] for c in top]) if top else ""
+                if context:
+                    answer = (
+                        "Here are the most relevant excerpts from the product document:\n\n"
+                        + context
+                    )
+                else:
+                    answer = "Sorry, I couldn't find relevant information in the product PDF."
 
             now = datetime.now().strftime("%Y-%m-%d %H:%M")
             st.session_state["chat_histories"][chat_key].append({

@@ -11,10 +11,23 @@ gatherUsageStats = false
 
 [app]
 admin_users = [
-  "subin.soman@6dtech.co.in"
-  
+  "subin.soman@6dtech.co.in" 
 ]
+
+[database]
+driver = "mysql"  # allowed: "postgres", "mysql", "sqlite"
+
+# Common settings (Postgres/MySQL)
+host = "10.0.13.74"
+port = 3307
+user = "myuser"
+password = "password"
+name = "mydb"
+
+# SQLite specific (used when driver = "sqlite")
+path = "./pdf.db"    # filesystem path to the SQLite DB file
 
 [custom]
 # n8n upload webhook endpoint for PDF uploads
-UPLOAD_WEBHOOK_URL = "http://10.0.13.74:443/webhook/8e60faca-ef27-4ec4-a761-72ceb053033d"
+UPLOAD_WEBHOOK_URL = "http://49.206.243.220:443/webhook/73b97b8d-e6ac-4803-a121-c8e288d5a156"
+AARYA_WEBSOCKET_URL = "wss://n8n.6dtech.co.in:8090?client_id=tes44t123&workflow_id=c9a8c60b-a696-4eeb-bede-ef207a7cf092"
