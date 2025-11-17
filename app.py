@@ -154,12 +154,25 @@ def _get_workflow_id() -> str:
             or os.environ.get("WORKFLOW_ID")
             or ""
         )).strip()
+        
+        # If not found, try to extract from WebSocket URL query parameters
+        if not wid:
+            ws_url = _get_ws_url()
+            if ws_url and "workflow_id=" in ws_url:
+                try:
+                    parsed = urllib.parse.urlparse(ws_url)
+                    params = urllib.parse.parse_qs(parsed.query)
+                    if "workflow_id" in params:
+                        wid = params["workflow_id"][0]
+                except Exception:
+                    pass
     except Exception:
         wid = ""
     return wid
 
-def _ws_send_message(ws_url: str, payload: Dict) -> Optional[str]:
+def _ws_send_message(ws_url: str, payload: Dict, debug: bool = False) -> Optional[str]:
     if not ws_url or create_connection is None:
+        st.error("❌ WebSocket library not available. Please install: pip install websocket-client")
         return None
     try:
         opts = {}
@@ -168,20 +181,79 @@ def _ws_send_message(ws_url: str, payload: Dict) -> Optional[str]:
                 opts = {"sslopt": {"cert_reqs": ssl.CERT_NONE}}  # ignore cert for internal/self-signed
         except Exception:
             opts = {}
+        
+        if debug:
+            st.info(f"🔌 Connecting to WebSocket: {ws_url}")
+        
         ws = create_connection(ws_url, timeout=10, **opts)
-        ws.send(json.dumps(payload))
+        
+        # Send message
+        payload_str = json.dumps(payload)
+        if debug:
+            st.info(f"📤 Sending payload: {payload_str[:200]}...")
+        ws.send(payload_str)
+        
+        # Receive response
         resp = ws.recv()
+        if debug:
+            st.success("✅ Received response from WebSocket")
+        
         try:
             ws.close()
         except Exception:
             pass
+        
+        # Decode bytes to string if needed
+        resp_str = None
         if isinstance(resp, (bytes, bytearray)):
             try:
-                return resp.decode("utf-8", errors="ignore")
-            except Exception:
+                resp_str = resp.decode("utf-8", errors="ignore")
+            except Exception as e:
+                st.error(f"❌ Failed to decode response: {e}")
                 return None
-        return str(resp)
-    except Exception:
+        else:
+            resp_str = str(resp)
+        
+        # Parse JSON response and extract output
+        try:
+            resp_json = json.loads(resp_str)
+            
+            # Extract output from the response structure
+            if isinstance(resp_json, dict):
+                # Try direct output field first (top-level)
+                output = resp_json.get("output")
+                
+                # If not found, try message.output (nested)
+                if not output:
+                    message = resp_json.get("message", {})
+                    if isinstance(message, dict):
+                        output = message.get("output")
+                
+                if output:
+                    if debug:
+                        with st.expander("🔍 Full WebSocket Response (Debug)", expanded=False):
+                            st.json(resp_json)
+                        st.info(f"📝 Extracted output: {output[:100]}...")
+                    return output
+            
+            # Fallback to raw response if structure doesn't match
+            if debug:
+                st.warning("⚠️ Response doesn't match expected format, returning raw response")
+                with st.expander("🔍 Raw Response (Debug)", expanded=False):
+                    st.code(resp_str)
+            return resp_str
+        except json.JSONDecodeError:
+            # If not JSON, return as-is
+            if debug:
+                st.warning("⚠️ Response is not JSON, returning raw text")
+                with st.expander("🔍 Raw Response (Debug)", expanded=False):
+                    st.code(resp_str)
+            return resp_str
+    except Exception as e:
+        st.error(f"❌ WebSocket error: {type(e).__name__}: {str(e)}")
+        import traceback
+        if debug:
+            st.code(traceback.format_exc())
         return None
 
 # ---------------------- Auth Helpers ----------------------
@@ -1645,7 +1717,37 @@ elif page == "aarya":
         st.info("No products available. An admin must create one first.")
     else:
         name_to_id = {p["name"]: p["id"] for p in products}
-        selected_name = st.selectbox("Select your knowledge base", list(name_to_id.keys()))
+        
+        # Clean header layout
+        col1, col2 = st.columns([4, 1])
+        
+        with col1:
+            selected_name = st.selectbox(
+                "Select Knowledge Base",
+                list(name_to_id.keys()),
+                key="kb_selector"
+            )
+        
+        with col2:
+            # Reconnect button aligned with selectbox
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            if st.button("🔄 Reconnect", use_container_width=True, help="Start new session"):
+                if "aarya_session_id" in st.session_state:
+                    del st.session_state["aarya_session_id"]
+                if "aarya_client_id" in st.session_state:
+                    del st.session_state["aarya_client_id"]
+                st.toast("Session reset successfully", icon="✅")
+                st.rerun()
+        
+        # Status indicator below
+        if "aarya_session_id" in st.session_state:
+            session_id = st.session_state["aarya_session_id"]
+            st.success(f"🟢 Connected • Session: `{session_id[:16]}...`")
+        else:
+            st.info("⚪ Not connected • Send a message to start")
+        
+        st.divider()
+        
         selected_id = name_to_id[selected_name]
         # Update toolbar title to current product name with professional suffix
         safe_title = selected_name.replace("'", "\\'") + " — Product QA"
@@ -1712,9 +1814,12 @@ elif page == "aarya":
                     "client_id": st.session_state["aarya_client_id"],
                     "workflow_id": wid,
                 }
-                resp = _ws_send_message(ws_url, payload)
+                # Call WebSocket with debug mode disabled by default
+                resp = _ws_send_message(ws_url, payload, debug=False)
                 if resp:
                     answer = resp
+                else:
+                    st.error("❌ Failed to get response from Aarya. Try reconnecting using the 🔄 button.")
             if answer is None:
                 try:
                     top = retriever.query(selected_id, user_msg, top_k=3)
