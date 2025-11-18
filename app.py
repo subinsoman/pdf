@@ -8,6 +8,7 @@ import io
 import base64
 import ssl
 import time
+import html
 try:
     import tomllib as _toml  # Python 3.11+
 except Exception:  # pragma: no cover
@@ -571,7 +572,7 @@ LOGO_SVG_PATH = os.path.join(ASSETS_DIR, "logo.svg")
 
 # Page config with custom favicon if available
 page_icon = ICON_PATH if os.path.exists(ICON_PATH) else "📄"
-st.set_page_config(page_title="Product Assistant", page_icon=page_icon, layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Knowledge Base Assistant", page_icon=page_icon, layout="wide", initial_sidebar_state="expanded")
 
 # Prefer native logo placement (goes into stLogoSpacer) — use logo.svg for navbar
 LOGO1_SVG_PATH = os.path.join(ASSETS_DIR, "logo1.svg")
@@ -632,20 +633,25 @@ st.markdown(
         background-size: contain;
       }
       div[data-testid="stToolbar"]::after {
-        content: "Product Assistant";
+        content: "Knowledge Base Assistant";
         position: absolute;
-        left: 40px; /* space for toolbar icon */
+        left: 50%;
         top: 50%;
-        transform: translateY(-50%);
+        transform: translate(-50%, -50%);
         font-weight: 600;
         font-size: 14px;
         color: #111827;
         letter-spacing: 0.2px;
         pointer-events: none;
-        max-width: calc(100% - 220px); /* avoid overlap with right-side toolbar icons */
+        max-width: calc(100% - 500px); /* avoid overlap with right-side toolbar icons */
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
+      }
+      /* When sidebar is collapsed, title stays centered */
+      [data-testid="stSidebar"][aria-expanded="false"] ~ [data-testid="stAppViewContainer"] div[data-testid="stToolbar"]::after {
+        left: 50%;
+        transform: translate(-50%, -50%);
       }
       .app-card {
         background: var(--bg-card);
@@ -710,6 +716,12 @@ st.markdown(
       .stButton { margin: 0 !important; }
       .bubble-user { background:#ffffff; border:1px solid #e5e7eb; border-radius: 12px; padding:10px 12px; margin-bottom:6px; }
       .bubble-assistant { background:#f1f5ff; border:1px solid #dbe4ff; border-radius: 12px; padding:10px 12px; margin-bottom:6px; }
+      .assistant-msg-wrapper { background:#f1f5ff; border:1px solid #dbe4ff; border-radius: 12px; padding:10px 12px; margin-bottom:6px; }
+      .assistant-msg-wrapper p:first-child { margin-top: 0; }
+      .assistant-msg-wrapper p:last-child { margin-bottom: 0; }
+      .assistant-msg-wrapper ul, .assistant-msg-wrapper ol { margin: 0.5em 0; }
+      .assistant-msg-wrapper code { background: #e0e7ff; padding: 2px 6px; border-radius: 4px; }
+      .assistant-msg-wrapper pre { background: #e0e7ff; padding: 8px; border-radius: 6px; overflow-x: auto; }
       .meta-row { font-size:12px; color:#6b7280; margin-top:2px; }
       .msg-header { display:flex; align-items:center; gap:8px; font-weight:600; margin: 2px 0 6px 0; }
       .msg-header.right { justify-content: flex-end; }
@@ -717,6 +729,11 @@ st.markdown(
       .avatar-user { background:#e5e7eb; color:#374151; }
       .avatar-assistant { background:#dbe4ff; color:#1d4ed8; }
       .name { font-size:13px; color:#111827; }
+      /* Reduce spacing between components in Aarya page */
+      .element-container { margin-bottom: 0.25rem !important; }
+      div[data-testid="column"] { gap: 0.25rem !important; }
+      div[data-testid="stVerticalBlock"] > div { gap: 0.25rem !important; }
+      div[data-testid="stVerticalBlock"] { gap: 0.25rem !important; }
     </style>
     """,
     unsafe_allow_html=True,
@@ -824,7 +841,7 @@ if not st.session_state.get("user"):
           div[data-testid='stMarkdownContainer'] { margin-top: 0; margin-bottom: 0; }
 
           .login-wrap { width: 320px; max-width: 92vw; padding: 8px 0 4px; margin-left:auto; margin-right:auto; }
-          .login-logo { width:68px; height:68px; border-radius:50%; background:#f97316; display:flex; align-items:center; justify-content:center; margin: 8px auto 12px; box-shadow:0 6px 16px rgba(249,115,22,0.35); }
+          .login-logo { width:68px; height:68px; border-radius:50%; background:transparent; display:flex; align-items:center; justify-content:center; margin: 8px auto 12px; box-shadow:none; }
           .login-logo img { width:36px; height:36px; display:block; }
           .login-title { font-weight:700; font-size:20px; color:#111827; margin-top:4px; text-align:center; }
           .login-right-link { font-size:12px; color:#2563eb; text-decoration:none; }
@@ -1112,13 +1129,13 @@ def _render_create_form(prefix: str = "dialog"):
         st.info("Admin access required to create products.")
         return
     with st.form(f"product_form_{prefix}"):
-        name = st.text_input("Product name", key=f"name_{prefix}")
-        desc = st.text_area("Product description", key=f"desc_{prefix}")
-        pdf_file = st.file_uploader("Upload product PDF", type=["pdf"], key=f"pdf_{prefix}")
-        submitted = st.form_submit_button("Create/Update Product")
+        name = st.text_input("Knowledge base name", key=f"name_{prefix}")
+        desc = st.text_area("Knowledge base description", key=f"desc_{prefix}")
+        pdf_file = st.file_uploader("Upload PDF", type=["pdf"], key=f"pdf_{prefix}")
+        submitted = st.form_submit_button("Create/Update Knowledge base")
     if submitted:
         if not name:
-            st.warning("Please enter a product name.")
+            st.warning("Please enter a knowledge base name.")
         elif not pdf_file:
             st.warning("Please upload a product PDF.")
         else:
@@ -1143,19 +1160,19 @@ def _render_create_form(prefix: str = "dialog"):
                 "pdf_path": pdf_path,
             })
             retriever.index_product(product_id, chunks)
-            st.success("Product saved and indexed successfully.")
+            st.success("Knowledge base saved and indexed successfully.")
 
-# Create Product dialog (admin protected) with fallback
+# Create Knowledge base dialog (admin protected) with fallback
 if st.session_state.get("show_create_dialog"):
     if hasattr(st, "dialog"):
-        with st.dialog("Create Product"):
+        with st.dialog("Create Knowledge base"):
             _render_create_form("dialog")
             cols = st.columns([1, 1, 1])
             if cols[2].button("Close"):
                 st.session_state["show_create_dialog"] = False
     else:
         with st.sidebar:
-            st.subheader("Create Product")
+            st.subheader("Create Knowledge base")
             _render_create_form("sidebar")
             if st.button("Close"):
                 st.session_state["show_create_dialog"] = False
@@ -1240,6 +1257,9 @@ if st.session_state.get("user"):
           /* Transparent button overlay positioned over the chip to catch clicks */
           div.st-key-chip_toggle_btn { position: fixed; top: 8px; right: 16px; width: 200px; height: 36px; z-index: 2147483650; }
           div.st-key-chip_toggle_btn button { width: 100%; height: 100%; background: transparent !important; border: 0 !important; color: transparent !important; box-shadow: none !important; }
+          /* Close button overlay when dropdown is open */
+          div.st-key-chip_close_btn { position: fixed; top: 8px; right: 16px; width: 200px; height: 36px; z-index: 2147483650; }
+          div.st-key-chip_close_btn button { width: 100%; height: 100%; background: transparent !important; border: 0 !important; color: transparent !important; box-shadow: none !important; }
           /* No extra visible logout button; handled via JS click on the text */
         </style>
         """,
@@ -1260,7 +1280,7 @@ if st.session_state.get("user"):
 
     # Dropdown with a direct anchor link that navigates to ?logout=1
     dropdown_html = (
-        "<div class='tb-profile'>"
+        "<div class='tb-profile' id='profile-dropdown'>"
         "  <div class='row'>"
         f"    <div class='avatar-xl'>{avatar_large_html}</div>"
         "    <div style='min-width:0'>"
@@ -1270,6 +1290,19 @@ if st.session_state.get("user"):
         "    <a class='logout-btn' href='./?logout=1' target='_self' role='button'>Logout</a>"
         "  </div>"
         "</div>"
+        "<script>"
+        "  (function() {"
+        "    if (window.profileClickHandlerAdded) return;"
+        "    window.profileClickHandlerAdded = true;"
+        "    document.addEventListener('click', function(e) {"
+        "      const dropdown = document.getElementById('profile-dropdown');"
+        "      const chip = document.querySelector('.tb-chip');"
+        "      if (dropdown && !dropdown.contains(e.target) && !chip.contains(e.target)) {"
+        "        window.parent.postMessage({type: 'streamlit:setComponentValue', value: 'close_profile'}, '*');"
+        "      }"
+        "    });"
+        "  })();"
+        "</script>"
     ) if prof_on else ""
 
     # Render chip and dropdown
@@ -1278,6 +1311,11 @@ if st.session_state.get("user"):
     if not prof_on:
         if st.button(" ", key="chip_toggle_btn"):
             st.session_state["show_profile"] = True
+            st.rerun()
+    else:
+        # When dropdown is open, provide a close button
+        if st.button(" ", key="chip_close_btn"):
+            st.session_state["show_profile"] = False
             st.rerun()
     # No extra visible logout controls; link navigates with ?logout=1 which triggers server _logout()
 
@@ -1450,12 +1488,12 @@ if page == "Knowledge base":
                     else:
                         st.info("No changes detected.")
             else:
-                name_c = st.text_input("Product name", key="kb_ce_new_name")
+                name_c = st.text_input("Knowledge base name", key="kb_ce_new_name")
                 desc_c = st.text_input("Short description", key="kb_ce_new_desc")
-                pdf_c = st.file_uploader("Upload product PDF", type=["pdf"], key="kb_ce_new_pdf")
-                if st.button("Create Product", key="kb_ce_new_submit"):
+                pdf_c = st.file_uploader("Upload PDF", type=["pdf"], key="kb_ce_new_pdf")
+                if st.button("Create Knowledge base", key="kb_ce_new_submit"):
                     if not name_c:
-                        st.warning("Please enter a product name.")
+                        st.warning("Please enter a knowledge base name.")
                     elif not pdf_c:
                         st.warning("Please upload a product PDF.")
                     else:
@@ -1527,7 +1565,7 @@ if page == "Knowledge base":
                             "updated_at": "",
                         })
                         retriever.index_product(pid, chunks)
-                        st.success("Product created and indexed successfully.")
+                        st.success("Knowledge base created and indexed successfully.")
                         st.rerun()
 
         # Inline editing table using Streamlit Data Editor
@@ -1544,7 +1582,7 @@ if page == "Knowledge base":
             rows = []
             for p in products:
                 rows.append({
-                    "Product name": p.get("name", ""),
+                    "Knowledge base name": p.get("name", ""),
                     "Description": p.get("description", ""),
                     "Created by": p.get("created_by", ""),
                     "Created at": p.get("created_at", ""),
@@ -1556,9 +1594,10 @@ if page == "Knowledge base":
             df = pd.DataFrame(rows)
             # Include hidden _id column to keep a stable row identity even if user sorts in the editor
             # Place 'Select' as the first column as requested
-            display_cols = ["Select", "Product name", "Description", "Created by", "Created at", "Updated by", "Updated at", "_id"]
+            # ID column is kept in dataframe but hidden from display
+            display_cols = ["Select", "Knowledge base name", "Description", "Created by", "Created at", "Updated by", "Updated at", "_id"]
             if df.empty:
-                st.info("No products available.")
+                st.info("No knowledge bases available.")
             else:
                 # Place a container BEFORE the table to render the action bar above the table header
                 ab_container = st.container()
@@ -1568,14 +1607,14 @@ if page == "Knowledge base":
                     hide_index=True,
                     width='stretch',
                     column_config={
-                        "Product name": st.column_config.TextColumn(disabled=False),
+                        "Knowledge base name": st.column_config.TextColumn(disabled=False),
                         "Description": st.column_config.TextColumn(disabled=False),
                         "Created by": st.column_config.TextColumn(disabled=True),
                         "Created at": st.column_config.TextColumn(disabled=True),
                         "Updated by": st.column_config.TextColumn(disabled=True),
                         "Updated at": st.column_config.TextColumn(disabled=True),
                         "Select": st.column_config.CheckboxColumn(help="Select one row to enable Edit"),
-                        "_id": st.column_config.TextColumn(label="ID", disabled=True),
+                        "_id": None,  # Hide ID column by default
                     },
                 )
                 # Render the action bar INTO the container we placed before the table
@@ -1593,7 +1632,9 @@ if page == "Knowledge base":
                           .kb-action-btn .stButton { margin: 0 !important; padding: 0 !important; }
                           .kb-action-btn .stButton>button {
                             background: transparent !important;
+                            background-color: transparent !important;
                             border: none !important;
+                            border-width: 0 !important;
                             box-shadow: none !important;
                             padding: 0 !important;
                             margin: 0 !important;
@@ -1603,10 +1644,50 @@ if page == "Knowledge base":
                             font-size: 18px !important;
                             line-height: 1 !important;
                           }
-                          .kb-action-btn .stButton>button:hover { background: transparent !important; opacity: 0.7 !important; }
-                          .kb-action-btn .stButton>button:active { background: transparent !important; }
-                          .kb-action-btn .stButton>button:focus { background: transparent !important; outline: none !important; box-shadow: none !important; }
+                          .kb-action-btn .stButton>button:hover { 
+                            background: transparent !important; 
+                            background-color: transparent !important;
+                            opacity: 0.7 !important; 
+                            border: none !important;
+                            border-width: 0 !important;
+                          }
+                          .kb-action-btn .stButton>button:active { 
+                            background: transparent !important; 
+                            background-color: transparent !important;
+                            border: none !important;
+                            border-width: 0 !important;
+                          }
+                          .kb-action-btn .stButton>button:focus { 
+                            background: transparent !important; 
+                            background-color: transparent !important;
+                            outline: none !important; 
+                            box-shadow: none !important; 
+                            border: none !important;
+                            border-width: 0 !important;
+                          }
                           .kb-action-btn .stButton>button:disabled { opacity: 0.3; cursor: not-allowed; }
+                          /* Target buttons by key for extra specificity */
+                          div.st-key-kb_inline_delete_sel button,
+                          div.st-key-kb_inline_edit_sel button {
+                            background: transparent !important;
+                            background-color: transparent !important;
+                            border: none !important;
+                            border-width: 0 !important;
+                            box-shadow: none !important;
+                          }
+                          div.st-key-kb_inline_delete_sel button:hover,
+                          div.st-key-kb_inline_edit_sel button:hover,
+                          div.st-key-kb_inline_delete_sel button:active,
+                          div.st-key-kb_inline_edit_sel button:active,
+                          div.st-key-kb_inline_delete_sel button:focus,
+                          div.st-key-kb_inline_edit_sel button:focus {
+                            background: transparent !important;
+                            background-color: transparent !important;
+                            border: none !important;
+                            border-width: 0 !important;
+                            box-shadow: none !important;
+                            outline: none !important;
+                          }
                         </style>
                         """,
                         unsafe_allow_html=True,
@@ -1703,9 +1784,9 @@ if page == "Knowledge base":
                         cur = original_by_id.get(pid)
                         if not cur:
                             continue
-                        new_name = str(row.get("Product name") or "")
+                        new_name = str(row.get("Knowledge base name") or "")
                         new_desc = str(row.get("Description") or "")
-                        if new_name != (cur.get("Product name") or "") or new_desc != (cur.get("Description") or ""):
+                        if new_name != (cur.get("Knowledge base name") or "") or new_desc != (cur.get("Description") or ""):
                             cur_store = next((p for p in products if p.get("id") == pid), None)
                             user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
                             store.upsert({
@@ -1742,8 +1823,31 @@ elif page == "aarya":
         if "aarya_client_id" not in st.session_state:
             st.session_state["aarya_client_id"] = f"selfcare_{int(time.time()*1000)}_{str(uuid.uuid4().int)[-3:]}"
         
-        # Clean control layout
-        col1, col2 = st.columns([4, 1])
+        # Reduce spacing at top of page
+        st.markdown(
+            """
+            <style>
+              /* Reduce top spacing for Aarya page */
+              div[data-testid="stVerticalBlock"] > div:first-child {
+                padding-top: 0 !important;
+                margin-top: 0 !important;
+              }
+              div[data-testid="stVerticalBlock"] > div {
+                padding-top: 0 !important;
+                margin-top: 0 !important;
+              }
+              /* Reduce spacing between elements */
+              .element-container {
+                margin-bottom: 0.25rem !important;
+                padding-bottom: 0 !important;
+              }
+            </style>
+            """,
+            unsafe_allow_html=True
+        )
+        
+        # Clean control layout - adjusted column ratio for icon-sized button
+        col1, col2 = st.columns([20, 1])
         
         with col1:
             selected_name = st.selectbox(
@@ -1753,20 +1857,68 @@ elif page == "aarya":
             )
         
         with col2:
-            # Reconnect button with status indicator
-            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+            # Reconnect button with status indicator (icon-sized)
+            st.markdown(
+                """
+                <style>
+                  div.st-key-reconnect_btn {
+                    display: flex;
+                    align-items: flex-end;
+                    height: 100%;
+                    justify-content: center;
+                  }
+                  div.st-key-reconnect_btn button,
+                  div.st-key-reconnect_btn button[kind="primary"],
+                  div.st-key-reconnect_btn button[kind="secondary"] {
+                    background: transparent !important;
+                    background-color: transparent !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                    padding: 0.5rem !important;
+                    font-size: 24px !important;
+                    color: #374151 !important;
+                    min-height: auto !important;
+                    height: auto !important;
+                    width: auto !important;
+                    min-width: auto !important;
+                  }
+                  div.st-key-reconnect_btn button:hover,
+                  div.st-key-reconnect_btn button[kind="primary"]:hover,
+                  div.st-key-reconnect_btn button[kind="secondary"]:hover {
+                    background: transparent !important;
+                    background-color: transparent !important;
+                    opacity: 0.7 !important;
+                    border: none !important;
+                    box-shadow: none !important;
+                  }
+                  div.st-key-reconnect_btn button:active,
+                  div.st-key-reconnect_btn button:focus,
+                  div.st-key-reconnect_btn button[kind="primary"]:active,
+                  div.st-key-reconnect_btn button[kind="primary"]:focus,
+                  div.st-key-reconnect_btn button[kind="secondary"]:active,
+                  div.st-key-reconnect_btn button[kind="secondary"]:focus {
+                    background: transparent !important;
+                    background-color: transparent !important;
+                    box-shadow: none !important;
+                    border: none !important;
+                    outline: none !important;
+                  }
+                </style>
+                """,
+                unsafe_allow_html=True
+            )
             
             # Determine button label and type based on connection status
             if "aarya_session_id" in st.session_state:
-                button_label = "🟢 Reconnect"
+                button_label = "🔄"
                 button_type = "primary"
                 button_help = "Connected • Click to start new session"
             else:
-                button_label = "⚪ Connect"
+                button_label = "🔄"
                 button_type = "secondary"
                 button_help = "Not connected • Send a message to start"
             
-            if st.button(button_label, use_container_width=True, type=button_type, help=button_help):
+            if st.button(button_label, type=button_type, help=button_help, key="reconnect_btn"):
                 if "aarya_session_id" in st.session_state:
                     del st.session_state["aarya_session_id"]
                 if "aarya_client_id" in st.session_state:
@@ -1774,11 +1926,9 @@ elif page == "aarya":
                 st.toast("Session reset successfully", icon="✅")
                 st.rerun()
         
-        st.divider()
-        
         selected_id = name_to_id[selected_name]
-        # Update toolbar title to current product name with professional suffix
-        safe_title = selected_name.replace("'", "\\'") + " — Product QA"
+        # Update toolbar title to current knowledge base name with professional suffix
+        safe_title = selected_name.replace("'", "\\'") + " — Knowledge Base QA"
         st.markdown(
             f"""
             <style>
@@ -1805,18 +1955,28 @@ elif page == "aarya":
                 left, right = st.columns([5,7])
                 with right:
                     st.markdown("<div class='msg-header right'><span class='name'>AARYA</span><span class='avatar avatar-assistant'>A</span></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='bubble-assistant'>{text}</div>", unsafe_allow_html=True)
+                    # Render markdown for assistant responses with custom styling
+                    st.markdown(
+                        f"""<div class="assistant-msg-wrapper">
+                        
+{text}
+
+</div>""",
+                        unsafe_allow_html=True
+                    )
                     meta = st.columns([9,3])
                     meta[1].markdown(f"<div class='chat-ts'>{ts}</div>", unsafe_allow_html=True)
             else:
+                # Escape HTML/XML characters for user messages
+                text_escaped = html.escape(text).replace('\n', '<br>')
                 left, right = st.columns([8,4])
                 with left:
                     st.markdown("<div class='msg-header'><span class='avatar avatar-user'>Y</span><span class='name'>You</span></div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='bubble-user'>{text}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='bubble-user'>{text_escaped}</div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='meta-row'>{ts}</div>", unsafe_allow_html=True)
 
         # Modern chat input
-        user_msg = st.chat_input("Ask about the selected product...")
+        user_msg = st.chat_input("Ask about the selected knowledge base...")
         if user_msg:
             # Immediately add user message to chat history
             now = datetime.now().strftime("%Y-%m-%d %H:%M")
