@@ -369,7 +369,14 @@ def _read_query_params() -> dict:
         qp = st.experimental_get_query_params()  # older
     out = {}
     try:
-        for k, v in qp.items():
+        # Handle both dict-like and QueryParamsProxy objects
+        if hasattr(qp, 'to_dict'):
+            # QueryParamsProxy has to_dict() method
+            qp_dict = qp.to_dict()
+        else:
+            qp_dict = dict(qp.items())
+        
+        for k, v in qp_dict.items():
             if isinstance(v, list):
                 out[k] = [str(x) for x in v]
             elif v is None:
@@ -382,9 +389,12 @@ def _read_query_params() -> dict:
 
 def _clear_query_params():
     try:
-        st.experimental_set_query_params()
+        st.query_params.clear()
     except Exception:
-        pass
+        try:
+            st.experimental_set_query_params()
+        except Exception:
+            pass
 
 def _logout():
     # Best-effort revoke Google access token
@@ -398,25 +408,39 @@ def _logout():
             )
     except Exception:
         pass
-    # Clear session
-    st.session_state["user"] = None
-    st.session_state["google_access_token"] = None
-    st.session_state["show_profile"] = False
+    # Clear user cookie FIRST before clearing session
+    try:
+        if cookies is not None and cookies.ready():
+            # Try multiple approaches to ensure cookie is cleared
+            try:
+                if "user" in cookies:
+                    del cookies["user"]
+            except Exception:
+                pass
+            try:
+                cookies["user"] = ""
+            except Exception:
+                pass
+            try:
+                cookies.save()
+            except Exception:
+                pass
+    except Exception:
+        pass
+    # Clear all session state related to authentication
+    keys_to_clear = ["user", "google_access_token", "show_profile", "is_admin"]
+    for key in keys_to_clear:
+        if key in st.session_state:
+            st.session_state[key] = None if key == "user" or key == "google_access_token" else False
     # Set a flash query param so we can show an alert after rerun on the login screen
     try:
-        st.experimental_set_query_params(logged_out="1")
+        st.query_params.clear()
+        st.query_params["logged_out"] = "1"
     except Exception:
-        pass
-    # Clear user cookie
-    try:
-        if cookies is not None:
-            try:
-                del cookies["user"]
-            except Exception:
-                cookies["user"] = ""
-            cookies.save()
-    except Exception:
-        pass
+        try:
+            st.experimental_set_query_params(logged_out="1")
+        except Exception:
+            pass
     st.rerun()
 
 def _handle_logout_param():
@@ -438,10 +462,7 @@ def _handle_kb_action():
     if action and pid:
         if action == "edit":
             st.session_state["kb_selected_rows"] = [{"id": pid}]
-            try:
-                st.experimental_set_query_params()  # clear
-            except Exception:
-                pass
+            _clear_query_params()
             st.rerun()
         elif action == "delete":
             cur = None
@@ -509,23 +530,21 @@ def _handle_kb_action():
             except Exception:
                 pass
             st.success("Deleted 1 row.")
-            try:
-                st.experimental_set_query_params()  # clear
-            except Exception:
-                pass
+            _clear_query_params()
             st.rerun()
 
 _handle_logout_param()
 _handle_kb_action()
 
 # Restore user from cookie if session empty, but do NOT restore right after logout
-if not st.session_state.get("user") and cookies is not None:
+if not st.session_state.get("user") and cookies is not None and cookies.ready():
     _qp_restore = {}
     try:
         _qp_restore = _read_query_params()
     except Exception:
         _qp_restore = {}
-    if "logged_out" not in _qp_restore:
+    # Don't restore if logged_out or logout param is present
+    if "logged_out" not in _qp_restore and "logout" not in _qp_restore:
         try:
             raw = cookies.get("user")
             if raw:
@@ -1022,10 +1041,7 @@ if not st.session_state.get("user"):
         _qp = _read_query_params()
         if "logged_out" in _qp and ("1" in _qp.get("logged_out", [])):
             st.success("You have been logged out.")
-            try:
-                st.experimental_set_query_params()
-            except Exception:
-                pass
+            _clear_query_params()
     except Exception:
         pass
 
@@ -1251,7 +1267,7 @@ if st.session_state.get("user"):
         f"      <div class='name'>{name_html}</div>"
         f"      <div class='email'>{u.get('email','')}</div>"
         "    </div>"
-        "    <a class='logout-btn' href='./?logout=1' role='button'>Logout</a>"
+        "    <a class='logout-btn' href='./?logout=1' target='_self' role='button'>Logout</a>"
         "  </div>"
         "</div>"
     ) if prof_on else ""
