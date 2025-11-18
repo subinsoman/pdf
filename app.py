@@ -188,7 +188,11 @@ def _ws_send_message(ws_url: str, payload: Dict, debug: bool = False) -> Optiona
         if debug:
             st.info(f"🔌 Connecting to WebSocket: {ws_url}")
         
-        ws = create_connection(ws_url, timeout=10, **opts)
+        # No timeout - keep connection open indefinitely until response received
+        ws = create_connection(ws_url, timeout=None, **opts)
+        
+        # Set socket to never timeout while waiting for response
+        ws.sock.settimeout(None)
         
         # Send message
         payload_str = json.dumps(payload)
@@ -196,7 +200,9 @@ def _ws_send_message(ws_url: str, payload: Dict, debug: bool = False) -> Optiona
             st.info(f"📤 Sending payload: {payload_str[:200]}...")
         ws.send(payload_str)
         
-        # Receive response
+        # Receive response - will wait indefinitely until message arrives
+        if debug:
+            st.info("⏳ Waiting for response (no timeout)...")
         resp = ws.recv()
         if debug:
             st.success("✅ Received response from WebSocket")
@@ -516,10 +522,7 @@ def _handle_kb_action():
                         st.warning(f"Delete webhook responded without JSON (status {getattr(_resp,'status_code',None)}): {getattr(_resp,'text', '')[:200]}")
                 except Exception:
                     st.warning("Failed to call delete webhook")
-            try:
-                store.delete(pid)
-            except Exception:
-                pass
+            # Removed: store.delete(pid) - using database only
             try:
                 pdfp = os.path.join(PDF_DIR, f"{pid}.pdf")
                 if os.path.exists(pdfp): os.remove(pdfp)
@@ -1153,12 +1156,7 @@ def _render_create_form(prefix: str = "dialog"):
             except Exception as e:
                 st.error(f"Failed to process PDF: {e}")
                 chunks = []
-            store.upsert({
-                "id": product_id,
-                "name": name,
-                "description": desc or "",
-                "pdf_path": pdf_path,
-            })
+            # Removed: store.upsert() - using database only
             retriever.index_product(product_id, chunks)
             st.success("Knowledge base saved and indexed successfully.")
 
@@ -1345,36 +1343,143 @@ if page == "Knowledge base":
             if is_edit_state:
                 _pid = sel_rows_state[0].get("id")
                 _cur = next((p for p in products if p.get("id") == _pid), None) or {}
+                
+                # Card-style container with professional styling
+                st.markdown("""
+                    <style>
+                        .kb-edit-card {
+                            background: #f8f9fa;
+                            border: 1px solid #e0e0e0;
+                            border-radius: 8px;
+                            padding: 20px;
+                            margin-bottom: 20px;
+                        }
+                        .kb-file-info {
+                            background: white;
+                            border: 1px solid #e0e0e0;
+                            border-radius: 6px;
+                            padding: 12px;
+                            margin: 10px 0;
+                        }
+                        .kb-file-name {
+                            font-size: 14px;
+                            color: #333;
+                            font-weight: 500;
+                            margin-bottom: 8px;
+                        }
+                        .kb-metadata {
+                            font-size: 12px;
+                            color: #666;
+                            padding: 12px;
+                            background: #f8f9fa;
+                            border-radius: 6px;
+                            margin-top: 15px;
+                            margin-bottom: 15px;
+                        }
+                        .kb-file-row {
+                            background: white;
+                            border: 1px solid #e0e0e0;
+                            border-radius: 6px;
+                            padding: 8px 12px;
+                            margin: 8px 0;
+                        }
+                    </style>
+                """, unsafe_allow_html=True)
+                
                 name_val = st.text_input("Name", value=_cur.get("name", ""), key=f"kb_ce_name_{_pid}")
                 desc_val = st.text_area("Description", value=_cur.get("description", ""), key=f"kb_ce_desc_{_pid}")
-                new_pdf = st.file_uploader("Replace PDF (optional)", type=["pdf"], key=f"kb_ce_edit_pdf_{_pid}")
+                
+                # Upload new files (multiple)
+                new_pdfs = st.file_uploader("Upload PDF files (optional)", type=["pdf"], key=f"kb_ce_edit_pdf_{_pid}", accept_multiple_files=True)
+                
+                # Current file section with card styling - shown after upload
                 cur_fname = os.path.basename(_cur.get("pdf_path", "")) if _cur.get("pdf_path") else "-"
-                st.caption(f"Current file: {cur_fname}")
-                if new_pdf is not None:
+                pdf_path = _cur.get("pdf_path", "")
+                
+                if pdf_path and os.path.exists(pdf_path):
+                    st.markdown("<div style='margin-top: 15px;'><strong>💾 Current Files</strong></div>", unsafe_allow_html=True)
+                    
+                    # Get file size
                     try:
-                        st.caption(f"Selected new file: {getattr(new_pdf, 'name', 'uploaded.pdf')}")
-                    except Exception:
-                        pass
+                        file_size = os.path.getsize(pdf_path)
+                        file_size_mb = file_size / (1024 * 1024)
+                    except:
+                        file_size_mb = 0
+                    
+                    # Use container with custom styling
+                    with st.container():
+                        st.markdown("""
+                            <style>
+                            div[data-testid="stHorizontalBlock"] {
+                                background: white;
+                                border: 1px solid #e0e0e0;
+                                border-radius: 6px;
+                                padding: 8px 12px;
+                                margin: 8px 0;
+                            }
+                            </style>
+                        """, unsafe_allow_html=True)
+                        
+                        # Horizontal layout: icon + filename + size + delete + view
+                        col_icon, col_name, col_size, col_delete, col_view = st.columns([0.3, 3, 0.8, 0.5, 0.8])
+                        
+                        with col_icon:
+                            st.markdown("<div style='padding-top: 8px;'>📄</div>", unsafe_allow_html=True)
+                        
+                        with col_name:
+                            st.markdown(f"<div style='padding-top: 8px; font-size: 14px; color: #333;'>{cur_fname}</div>", unsafe_allow_html=True)
+                        
+                        with col_size:
+                            st.markdown(f"<div style='padding-top: 8px; font-size: 12px; color: #999;'>{file_size_mb:.2f} MB</div>", unsafe_allow_html=True)
+                        
+                        with col_delete:
+                            if st.button("✕", key=f"kb_delete_pdf_{_pid}", help="Delete PDF file"):
+                                try:
+                                    os.remove(pdf_path)
+                                    st.success("PDF file deleted successfully.")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"Failed to delete file: {e}")
+                        
+                        with col_view:
+                            with open(pdf_path, "rb") as f:
+                                pdf_bytes = f.read()
+                            st.download_button(
+                                label="👁️",
+                                data=pdf_bytes,
+                                file_name=cur_fname,
+                                mime="application/pdf",
+                                key=f"kb_preview_{_pid}",
+                                use_container_width=True,
+                                help="View/Download PDF"
+                            )
+                
+                # Metadata section
                 _c_by = _cur.get("created_by") or "-"
                 _c_at = _cur.get("created_at") or "-"
                 _u_by = _cur.get("updated_by") or "-"
                 _u_at = _cur.get("updated_at") or "-"
                 st.markdown(
-                    f"<div style='font-size:12px; color:#666;'>Created by <b>{_c_by}</b> on <b>{_c_at}</b> • Last updated by <b>{_u_by}</b> on <b>{_u_at}</b></div>",
+                    f"<div class='kb-metadata'>Created by <b>{_c_by}</b> on <b>{_c_at}</b><br>Last updated by <b>{_u_by}</b> on <b>{_u_at}</b></div>",
                     unsafe_allow_html=True,
                 )
+                
+                st.markdown("<br>", unsafe_allow_html=True)
                 if st.button("Save changes", key=f"kb_ce_save_{_pid}"):
                     if (
                         name_val != _cur.get("name") or
                         desc_val != _cur.get("description") or
-                        new_pdf is not None
+                        new_pdfs
                     ):
                         user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
-                        # If a new PDF was uploaded, overwrite and re-index
+                        # If new PDFs were uploaded, process them
                         pdf_path = _cur.get("pdf_path", "")
-                        if new_pdf is not None and pdf_path:
+                        if new_pdfs and pdf_path:
                             try:
-                                _bytes = new_pdf.read()
+                                # Process the first PDF file (or merge multiple if needed)
+                                # For now, we'll use the first file
+                                first_pdf = new_pdfs[0]
+                                _bytes = first_pdf.read()
                                 with open(pdf_path, "wb") as f:
                                     f.write(_bytes)
                                 try:
@@ -1405,6 +1510,8 @@ if page == "Knowledge base":
                                     retriever.index_product(_pid, chunks)
                                 except Exception:
                                     pass
+                                if len(new_pdfs) > 1:
+                                    st.info(f"Note: {len(new_pdfs)} files selected, but only the first file was processed.")
                             except Exception:
                                 pass
                         # Always notify webhook for edit (with or without a new file)
@@ -1423,7 +1530,7 @@ if page == "Knowledge base":
                         if upload_url:
                             try:
                                 try:
-                                    fname = getattr(new_pdf, "name", None)
+                                    fname = getattr(new_pdfs[0], "name", None) if new_pdfs else None
                                 except Exception:
                                     fname = None
                                 if not fname:
@@ -1471,18 +1578,7 @@ if page == "Knowledge base":
                                     st.warning("Upload webhook responded without JSON")
                             except Exception:
                                 st.warning("Failed to call upload webhook")
-                        store.upsert({
-                            "id": _pid,
-                            "name": name_val,
-                            "description": desc_val,
-                            "pdf_path": pdf_path,
-                            "emails": _cur.get("emails", []),
-                            # preserve creation metadata; update modification metadata
-                            "created_by": _cur.get("created_by"),
-                            "created_at": _cur.get("created_at"),
-                            "updated_by": user_email,
-                            "updated_at": datetime.now().isoformat(timespec="seconds"),
-                        })
+                        # Removed: store.upsert() - using database only
                         st.success("Saved changes.")
                         st.rerun()
                     else:
@@ -1552,18 +1648,7 @@ if page == "Knowledge base":
                             chunks = []
                         user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
                         emails_list: List[str] = [user_email] if user_email else []
-                        store.upsert({
-                            "id": pid,
-                            "name": name_c,
-                            "description": desc_c or "",
-                            "pdf_path": pdf_path,
-                            "emails": emails_list,
-                            # creation metadata; not editable via UI
-                            "created_by": user_email,
-                            "created_at": datetime.now().isoformat(timespec="seconds"),
-                            "updated_by": "",
-                            "updated_at": "",
-                        })
+                        # Removed: store.upsert() - using database only
                         retriever.index_product(pid, chunks)
                         st.success("Knowledge base created and indexed successfully.")
                         st.rerun()
@@ -1622,14 +1707,33 @@ if page == "Knowledge base":
                     st.markdown(
                         """
                         <style>
+                          /* Remove borders from column containers */
+                          [data-testid="stHorizontalBlock"] { 
+                            gap: 0 !important; 
+                            padding: 0 !important; 
+                            margin: 0 !important; 
+                            border: none !important;
+                            box-shadow: none !important;
+                          }
+                          [data-testid="column"] { 
+                            padding: 0 !important; 
+                            margin: 0 !important; 
+                            border: none !important;
+                            box-shadow: none !important;
+                          }
+                          .element-container { 
+                            padding: 0 !important; 
+                            margin: 0 !important; 
+                            border: none !important;
+                          }
                           /* Target Streamlit layout wrapper divs to remove default spacing */
-                          .kb-action-btn [data-testid="stHorizontalBlock"] { gap: 0 !important; padding: 0 !important; margin: 0 !important; }
-                          .kb-action-btn [data-testid="column"] { padding: 0 !important; margin: 0 !important; }
-                          .kb-action-btn .element-container { padding: 0 !important; margin: 0 !important; }
-                          .kb-action-btn [class*="stLayoutWrapper"] { padding: 0 !important; margin: 0 !important; }
+                          .kb-action-btn [data-testid="stHorizontalBlock"] { gap: 0 !important; padding: 0 !important; margin: 0 !important; border: none !important; }
+                          .kb-action-btn [data-testid="column"] { padding: 0 !important; margin: 0 !important; border: none !important; }
+                          .kb-action-btn .element-container { padding: 0 !important; margin: 0 !important; border: none !important; }
+                          .kb-action-btn [class*="stLayoutWrapper"] { padding: 0 !important; margin: 0 !important; border: none !important; }
                           /* Remove all spacing from action button containers */
-                          .kb-action-btn { margin: 0 !important; padding: 0 !important; }
-                          .kb-action-btn .stButton { margin: 0 !important; padding: 0 !important; }
+                          .kb-action-btn { margin: 0 !important; padding: 0 !important; border: none !important; }
+                          .kb-action-btn .stButton { margin: 0 !important; padding: 0 !important; border: none !important; }
                           .kb-action-btn .stButton>button {
                             background: transparent !important;
                             background-color: transparent !important;
@@ -1667,6 +1771,11 @@ if page == "Knowledge base":
                           }
                           .kb-action-btn .stButton>button:disabled { opacity: 0.3; cursor: not-allowed; }
                           /* Target buttons by key for extra specificity */
+                          div.st-key-kb_inline_delete_sel,
+                          div.st-key-kb_inline_edit_sel {
+                            border: none !important;
+                            box-shadow: none !important;
+                          }
                           div.st-key-kb_inline_delete_sel button,
                           div.st-key-kb_inline_edit_sel button {
                             background: transparent !important;
@@ -1744,11 +1853,8 @@ if page == "Knowledge base":
                                             st.warning(f"Delete webhook responded without JSON (status {getattr(_r,'status_code',None)}): {getattr(_r,'text','')[:200]}")
                                     except Exception:
                                         st.warning("Failed to call delete webhook for selected row")
-                                try:
-                                    store.delete(pid)
-                                    del_count += 1
-                                except Exception:
-                                    pass
+                                # Removed: store.delete(pid) - using database only
+                                del_count += 1
                                 try:
                                     pdfp = os.path.join(PDF_DIR, f"{pid}.pdf")
                                     if os.path.exists(pdfp): os.remove(pdfp)
@@ -1789,17 +1895,7 @@ if page == "Knowledge base":
                         if new_name != (cur.get("Knowledge base name") or "") or new_desc != (cur.get("Description") or ""):
                             cur_store = next((p for p in products if p.get("id") == pid), None)
                             user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
-                            store.upsert({
-                                "id": pid,
-                                "name": new_name,
-                                "description": new_desc,
-                                "pdf_path": (cur_store or {}).get("pdf_path", ""),
-                                "emails": (cur_store or {}).get("emails", []),
-                                "created_by": (cur_store or {}).get("created_by", ""),
-                                "created_at": (cur_store or {}).get("created_at", ""),
-                                "updated_by": user_email,
-                                "updated_at": datetime.now().isoformat(timespec="seconds"),
-                            })
+                            # Removed: store.upsert() - using database only
                             updated_count += 1
                     if updated_count:
                         st.success(f"Updated {updated_count} row(s).")
@@ -1855,6 +1951,9 @@ elif page == "aarya":
                 list(name_to_id.keys()),
                 key="kb_selector"
             )
+        
+        # Get the selected ID from the name
+        selected_id = name_to_id.get(selected_name)
         
         with col2:
             # Reconnect button with status indicator (icon-sized)
@@ -2014,6 +2113,7 @@ elif page == "aarya":
                     "route": "general",
                     "chatInput": user_msg,
                     "msg_id": msg_id,
+                    "knowledge_id": selected_id,
                     "knowledge_name": selected_name,
                     "name": selected_name,
                     "type": "message",

@@ -66,7 +66,7 @@ class PdfMetadataRepository:
     # ---------------------- CRUD Methods ----------------------
 
     def list_all(self) -> List[Dict[str, Any]]:
-        stmt = select(self.table).order_by(self.table.c.id.desc())
+        stmt = select(self.table).order_by(self.table.c.created_at.desc())
         with self.engine.connect() as conn:
             result: Result = conn.execute(stmt)
             rows = result.fetchall()
