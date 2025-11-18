@@ -42,6 +42,8 @@ try:
     from websocket import create_connection  # type: ignore
 except Exception:
     create_connection = None  # type: ignore
+import threading
+import queue
 try:
     from streamlit_cookies_manager import EncryptedCookieManager  # type: ignore
 except Exception:  # pragma: no cover
@@ -1718,33 +1720,43 @@ elif page == "aarya":
     else:
         name_to_id = {p["name"]: p["id"] for p in products}
         
-        # Clean header layout
+        # Auto-initialize WebSocket connection on page load
+        if "aarya_session_id" not in st.session_state:
+            st.session_state["aarya_session_id"] = f"session_{uuid.uuid4().hex[:8]}_{int(time.time()*1000)}"
+        if "aarya_client_id" not in st.session_state:
+            st.session_state["aarya_client_id"] = f"selfcare_{int(time.time()*1000)}_{str(uuid.uuid4().int)[-3:]}"
+        
+        # Clean control layout
         col1, col2 = st.columns([4, 1])
         
         with col1:
             selected_name = st.selectbox(
-                "Select Knowledge Base",
+                "📚 Select Knowledge Base",
                 list(name_to_id.keys()),
                 key="kb_selector"
             )
         
         with col2:
-            # Reconnect button aligned with selectbox
+            # Reconnect button with status indicator
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
-            if st.button("🔄 Reconnect", use_container_width=True, help="Start new session"):
+            
+            # Determine button label and type based on connection status
+            if "aarya_session_id" in st.session_state:
+                button_label = "🟢 Reconnect"
+                button_type = "primary"
+                button_help = "Connected • Click to start new session"
+            else:
+                button_label = "⚪ Connect"
+                button_type = "secondary"
+                button_help = "Not connected • Send a message to start"
+            
+            if st.button(button_label, use_container_width=True, type=button_type, help=button_help):
                 if "aarya_session_id" in st.session_state:
                     del st.session_state["aarya_session_id"]
                 if "aarya_client_id" in st.session_state:
                     del st.session_state["aarya_client_id"]
                 st.toast("Session reset successfully", icon="✅")
                 st.rerun()
-        
-        # Status indicator below
-        if "aarya_session_id" in st.session_state:
-            session_id = st.session_state["aarya_session_id"]
-            st.success(f"🟢 Connected • Session: `{session_id[:16]}...`")
-        else:
-            st.info("⚪ Not connected • Send a message to start")
         
         st.divider()
         
@@ -1790,7 +1802,27 @@ elif page == "aarya":
         # Modern chat input
         user_msg = st.chat_input("Ask about the selected product...")
         if user_msg:
-            answer = None
+            # Immediately add user message to chat history
+            now = datetime.now().strftime("%Y-%m-%d %H:%M")
+            st.session_state["chat_histories"][chat_key].append({
+                "role": "user",
+                "content": user_msg,
+                "ts": now,
+                "like": 0,
+                "dislike": 0,
+            })
+            
+            # Add placeholder for assistant response with typing indicator
+            assistant_index = len(st.session_state["chat_histories"][chat_key])
+            st.session_state["chat_histories"][chat_key].append({
+                "role": "assistant",
+                "content": "💬 Typing...",
+                "ts": now,
+                "like": 0,
+                "dislike": 0,
+            })
+            
+            # Send WebSocket request in background
             ws_url = _get_ws_url()
             if ws_url:
                 if "aarya_session_id" not in st.session_state:
@@ -1814,40 +1846,32 @@ elif page == "aarya":
                     "client_id": st.session_state["aarya_client_id"],
                     "workflow_id": wid,
                 }
-                # Call WebSocket with debug mode disabled by default
-                resp = _ws_send_message(ws_url, payload, debug=False)
-                if resp:
-                    answer = resp
-                else:
-                    st.error("❌ Failed to get response from Aarya. Try reconnecting using the 🔄 button.")
-            if answer is None:
-                try:
-                    top = retriever.query(selected_id, user_msg, top_k=3)
-                except Exception as e:
-                    top = []
-                    st.error(f"Retrieval error: {e}")
-                context = "\n\n".join([c["text"] for c in top]) if top else ""
-                if context:
-                    answer = (
-                        "Here are the most relevant excerpts from the product document:\n\n"
-                        + context
-                    )
-                else:
-                    answer = "Sorry, I couldn't find relevant information in the product PDF."
-
-            now = datetime.now().strftime("%Y-%m-%d %H:%M")
-            st.session_state["chat_histories"][chat_key].append({
-                "role": "user",
-                "content": user_msg,
-                "ts": now,
-                "like": 0,
-                "dislike": 0,
-            })
-            st.session_state["chat_histories"][chat_key].append({
-                "role": "assistant",
-                "content": answer,
-                "ts": now,
-                "like": 0,
-                "dislike": 0,
-            })
-            # Rely on rerun to render new messages with reactions/timestamps
+                
+                # Store pending request
+                st.session_state["pending_ws"] = {
+                    "ws_url": ws_url,
+                    "payload": payload,
+                    "chat_key": chat_key,
+                    "assistant_index": assistant_index
+                }
+            
+            # Rerun to show user message and typing indicator
+            st.rerun()
+        
+        # Process pending WebSocket request
+        if "pending_ws" in st.session_state:
+            pending = st.session_state["pending_ws"]
+            del st.session_state["pending_ws"]
+            
+            # Call WebSocket
+            answer = _ws_send_message(pending["ws_url"], pending["payload"], debug=False)
+            
+            if answer:
+                # Update typing indicator with actual response
+                st.session_state["chat_histories"][pending["chat_key"]][pending["assistant_index"]]["content"] = answer
+            else:
+                # Remove the typing indicator if no response
+                st.session_state["chat_histories"][pending["chat_key"]].pop(pending["assistant_index"])
+            
+            # Rerun to show final response
+            st.rerun()
