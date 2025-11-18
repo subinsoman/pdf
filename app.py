@@ -1410,12 +1410,29 @@ if page == "Knowledge base":
                     with st.container():
                         st.markdown("""
                             <style>
+                            /* Remove borders from file row container */
                             div[data-testid="stHorizontalBlock"] {
                                 background: white;
                                 border: 1px solid #e0e0e0;
                                 border-radius: 6px;
                                 padding: 8px 12px;
                                 margin: 8px 0;
+                            }
+                            /* Remove borders from buttons in current files section */
+                            .kb-current-file-btn button {
+                                background: transparent !important;
+                                border: none !important;
+                                box-shadow: none !important;
+                                padding: 4px 8px !important;
+                            }
+                            .kb-current-file-btn button:hover {
+                                opacity: 0.7 !important;
+                                border: none !important;
+                            }
+                            .kb-current-file-btn button:focus {
+                                border: none !important;
+                                box-shadow: none !important;
+                                outline: none !important;
                             }
                             </style>
                         """, unsafe_allow_html=True)
@@ -1433,15 +1450,20 @@ if page == "Knowledge base":
                             st.markdown(f"<div style='padding-top: 8px; font-size: 12px; color: #999;'>{file_size_mb:.2f} MB</div>", unsafe_allow_html=True)
                         
                         with col_delete:
-                            if st.button("✕", key=f"kb_delete_pdf_{_pid}", help="Delete PDF file"):
+                            st.markdown('<div class="kb-current-file-btn">', unsafe_allow_html=True)
+                            if st.button("✕", key=f"kb_delete_pdf_{_pid}", help="Remove PDF file reference"):
+                                # Just clear the pdf_path reference without deleting the actual file
                                 try:
-                                    os.remove(pdf_path)
-                                    st.success("PDF file deleted successfully.")
+                                    repo = get_pdf_metadata_repo()
+                                    repo.update(_pid, {"pdf_path": ""})
+                                    st.success("PDF file reference removed successfully.")
                                     st.rerun()
                                 except Exception as e:
-                                    st.error(f"Failed to delete file: {e}")
+                                    st.error(f"Failed to remove file reference: {e}")
+                            st.markdown('</div>', unsafe_allow_html=True)
                         
                         with col_view:
+                            st.markdown('<div class="kb-current-file-btn">', unsafe_allow_html=True)
                             with open(pdf_path, "rb") as f:
                                 pdf_bytes = f.read()
                             st.download_button(
@@ -1453,6 +1475,7 @@ if page == "Knowledge base":
                                 use_container_width=True,
                                 help="View/Download PDF"
                             )
+                            st.markdown('</div>', unsafe_allow_html=True)
                 
                 # Metadata section
                 _c_by = _cur.get("created_by") or "-"
@@ -2009,9 +2032,10 @@ elif page == "aarya":
             
             # Determine button label and type based on connection status
             if "aarya_session_id" in st.session_state:
+                session_id = st.session_state.get("aarya_session_id", "")
                 button_label = "🔄"
                 button_type = "primary"
-                button_help = "Connected • Click to start new session"
+                button_help = f"Connected • Session ID: {session_id} • Click to start new session"
             else:
                 button_label = "🔄"
                 button_type = "secondary"
