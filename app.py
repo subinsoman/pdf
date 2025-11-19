@@ -1397,7 +1397,7 @@ if page == "Knowledge base":
                 pdf_path = _cur.get("pdf_path", "")
                 
                 if pdf_path and os.path.exists(pdf_path):
-                    st.markdown("<div style='margin-top: 15px;'><strong>💾 Current Files</strong></div>", unsafe_allow_html=True)
+                    st.markdown("<label style='font-size: 14px; font-weight: 400; color: rgb(49, 51, 63); margin-bottom: 0.25rem; display: block;'>Current Files</label>", unsafe_allow_html=True)
                     
                     # Get file size
                     try:
@@ -1438,7 +1438,7 @@ if page == "Knowledge base":
                         """, unsafe_allow_html=True)
                         
                         # Horizontal layout: icon + filename + size + delete + view
-                        col_icon, col_name, col_size, col_delete, col_view = st.columns([0.3, 3, 0.8, 0.5, 0.8])
+                        col_icon, col_name, col_size, col_delete, col_view = st.columns([0.3, 3, 0.8, 0.5, 0.5])
                         
                         with col_icon:
                             st.markdown("<div style='padding-top: 8px;'>📄</div>", unsafe_allow_html=True)
@@ -1461,7 +1461,7 @@ if page == "Knowledge base":
                                 except Exception as e:
                                     st.error(f"Failed to remove file reference: {e}")
                             st.markdown('</div>', unsafe_allow_html=True)
-                        
+
                         with col_view:
                             st.markdown('<div class="kb-current-file-btn">', unsafe_allow_html=True)
                             with open(pdf_path, "rb") as f:
@@ -1472,7 +1472,7 @@ if page == "Knowledge base":
                                 file_name=cur_fname,
                                 mime="application/pdf",
                                 key=f"kb_preview_{_pid}",
-                                use_container_width=True,
+                                use_container_width=False,
                                 help="View/Download PDF"
                             )
                             st.markdown('</div>', unsafe_allow_html=True)
@@ -1678,6 +1678,7 @@ if page == "Knowledge base":
 
         # Inline editing table using Streamlit Data Editor
         if products:
+            st.markdown("<hr style='margin: 24px 0 16px 0; border: none; border-top: 1px solid #e5e7eb;'>", unsafe_allow_html=True)
             st.markdown(
                 """
                 <style>
