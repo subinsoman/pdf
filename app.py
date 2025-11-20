@@ -657,7 +657,24 @@ st.markdown(
       div[data-testid="stToolbar"] { position: relative; overflow: visible; padding-right: 180px; }
       /* Prevent Streamlit toolbar actions from intercepting clicks over our chip */
       div[data-testid="stToolbarActions"] { pointer-events: none !important; }
-      .tb-chip, .tb-profile { pointer-events: auto; }
+      .tb-chip, .tb-profile, .tb-profile-menu { pointer-events: auto; }
+      /* Native menu styles */
+      details.tb-profile-menu { position: fixed; top: 8px; right: 16px; z-index: 2147483647; }
+      details.tb-profile-menu > summary { list-style: none; display: inline-block; cursor: pointer; }
+      details.tb-profile-menu > summary::-webkit-details-marker { display: none; }
+      details.tb-profile-menu .chip { display:flex; align-items:center; gap:8px; background:#fff; border:1px solid #e5e7eb; border-radius:9999px; padding:4px 10px; box-shadow: 0 1px 2px rgba(0,0,0,0.06); cursor: pointer; }
+      details.tb-profile-menu[open] .chip { box-shadow: 0 6px 18px rgba(0,0,0,0.12); }
+      details.tb-profile-menu .avatar { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:13px; background:#e5e7eb; color:#374151; overflow:hidden; }
+      details.tb-profile-menu .avatar img { width:100%; height:100%; object-fit: cover; display:block; }
+      details.tb-profile-menu .name span { font-size:13px; color:#111827; max-width: 180px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display:block; }
+      details.tb-profile-menu .menu { position: fixed; top: 44px; right: 16px; z-index: 2147483651; background:#fff; border:1px solid #e5e7eb; border-radius:12px; box-shadow:0 8px 24px rgba(0,0,0,0.12); min-width: 260px; max-width: 320px; overflow:hidden; }
+      details.tb-profile-menu .menu .row { display:flex; align-items:center; gap:12px; padding: 12px 14px; }
+      details.tb-profile-menu .menu .row + .row { border-top: 1px solid #f1f5f9; }
+      details.tb-profile-menu .menu .avatar-xl { width:40px; height:40px; border-radius:50%; background:#e5e7eb; color:#374151; display:flex; align-items:center; justify-content:center; font-size:16px; overflow:hidden; }
+      details.tb-profile-menu .menu .name { font-weight:600; color:#111827; }
+      details.tb-profile-menu .menu .email { font-size:12px; color:#6b7280; }
+      details.tb-profile-menu .menu .logout-btn { margin-left:auto; color:#ef4444; text-decoration:none; font-size:13px; }
+      details.tb-profile-menu .menu .logout-btn:hover { text-decoration: underline; }
       /* Toolbar left icon (logo1) */
       div[data-testid="stToolbar"]::before {
         content: "";
@@ -709,6 +726,33 @@ st.markdown(
       .stButton>button[kind="primary"], .stButton>button {
         border-radius: 8px !important;
         padding: 0.5rem 0.9rem !important;
+        width: auto !important;
+        max-width: none !important;
+        white-space: nowrap !important;
+        display: inline-flex !important;
+        align-items: center !important;
+      }
+      /* Remove extra outer spacing around action buttons (Create/Clear/Save/Delete) */
+      div.element-container.st-key-kb_ce_new_clear,
+      div.element-container.st-key-kb_ce_new_submit,
+      div.element-container[class*="st-key-kb_ce_save_"],
+      div.element-container[class*="st-key-kb_ce_clear_"],
+      div.element-container[class*="st-key-kb_delete_pdf_"] {
+        margin: 0 !important;
+        padding: 0 !important;
+      }
+      /* Tighten the action row columns containing these buttons */
+      /* Applies where our two/three-column action bars are rendered */
+      [data-testid="stHorizontalBlock"] .stButton { margin: 0 !important; }
+      [data-testid="stHorizontalBlock"] { gap: 0 !important; }
+      /* Ensure columns that HOLD our action buttons do not get forced widths */
+      [data-testid="stColumn"]:has(.st-key-kb_ce_new_clear),
+      [data-testid="stColumn"]:has(.st-key-kb_ce_new_submit),
+      [data-testid="stColumn"]:has([class*="st-key-kb_ce_save_"]),
+      [data-testid="stColumn"]:has([class*="st-key-kb_ce_clear_"]),
+      [data-testid="stColumn"]:has([class*="st-key-kb_delete_pdf_"]) {
+        width: auto !important;
+        flex: 0 0 auto !important;
       }
       /* Hide Streamlit spinners and running indicators */
       div[data-testid="stSpinner"],
@@ -1306,10 +1350,12 @@ if st.session_state.get("show_create_dialog"):
 
 # Ensure a safe default for the current page before rendering sidebar/menu
 page = st.session_state.get("nav_page", "Dashbord")
+if page == "aarya":
+    page = "Aarya"
 
 # Minimal sidebar navigation (clean, no captions)
 with st.sidebar:
-    _options = ["Dashbord", "aarya"]
+    _options = ["Dashbord", "Aarya"]
     _icons = ["speedometer2", "chat-dots"]
     if is_admin_user():
         _options.append("Knowledgebase")
@@ -1359,7 +1405,7 @@ with st.sidebar:
 
 # Ensure 'page' is defined even if sidebar failed to render option_menu
 if 'page' not in locals() or not page:
-    page = st.session_state.get("nav_page", "aarya")
+    page = st.session_state.get("nav_page", "Aarya")
 
 # Toolbar user chip (Google style) on the right
 if st.session_state.get("user"):
@@ -1402,54 +1448,50 @@ if st.session_state.get("user"):
     avatar_small_html = f"<img src='{pic}' alt='avatar'/>" if pic else initial
     avatar_large_html = f"<img src='{pic}' alt='avatar'/>" if pic else initial
 
-    chip_html = (
-        "<div class='tb-chip'>"
-        "  <div class='chip'>"
+    # Native details/summary dropdown for seamless menu behavior
+    menu_html = (
+        "<details class='tb-profile-menu' id='tb-profile-menu'>"
+        "  <summary>"
+        "    <div class='chip' aria-haspopup='menu' aria-expanded='false'>"
         f"      <div class='avatar' title='{u.get('email','')}'>{avatar_small_html}</div>"
         f"      <div class='name'><span>{name_html}</span></div>"
-        "  </div>"
-        "</div>"
-    )
-
-    # Dropdown with a direct anchor link that navigates to ?logout=1
-    dropdown_html = (
-        "<div class='tb-profile' id='profile-dropdown'>"
-        "  <div class='row'>"
-        f"    <div class='avatar-xl'>{avatar_large_html}</div>"
-        "    <div style='min-width:0'>"
-        f"      <div class='name'>{name_html}</div>"
-        f"      <div class='email'>{u.get('email','')}</div>"
         "    </div>"
-        "    <a class='logout-btn' href='./?logout=1' target='_self' role='button'>Logout</a>"
+        "  </summary>"
+        "  <div class='menu' role='menu'>"
+        "    <div class='row'>"
+        f"      <div class='avatar-xl'>{avatar_large_html}</div>"
+        "      <div style='min-width:0'>"
+        f"        <div class='name'>{name_html}</div>"
+        f"        <div class='email'>{u.get('email','')}</div>"
+        "      </div>"
+        "      <a class='logout-btn' href='./?logout=1' target='_self' role='menuitem'>Logout</a>"
+        "    </div>"
         "  </div>"
-        "</div>"
+        "</details>"
         "<script>"
-        "  (function() {"
-        "    if (window.profileClickHandlerAdded) return;"
-        "    window.profileClickHandlerAdded = true;"
-        "    document.addEventListener('click', function(e) {"
-        "      const dropdown = document.getElementById('profile-dropdown');"
-        "      const chip = document.querySelector('.tb-chip');"
-        "      if (dropdown && !dropdown.contains(e.target) && !chip.contains(e.target)) {"
-        "        window.parent.postMessage({type: 'streamlit:setComponentValue', value: 'close_profile'}, '*');"
-        "      }"
-        "    });"
+        "  (function(){"
+        "    try {"
+        "      const d = document.getElementById('tb-profile-menu');"
+        "      if (!d) return;"
+        "      // Keep aria-expanded in sync"
+        "      d.addEventListener('toggle', function(){"
+        "        const chip = d.querySelector('.chip');"
+        "        if (chip) chip.setAttribute('aria-expanded', d.open ? 'true' : 'false');"
+        "      });"
+        "      // Toggle on chip click to avoid any event interference"
+        "      const chip = d.querySelector('.chip');"
+        "      if (chip) { chip.addEventListener('click', function(e){ e.preventDefault(); e.stopPropagation(); d.open = !d.open; }); }"
+        "      // Close on outside click"
+        "      document.addEventListener('click', function(e){ if (!d.open) return; if (!d.contains(e.target)) { d.open = false; } }, true);"
+        "      // Close on Escape"
+        "      document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && d.open) { d.open = false; } }, true);"
+        "    } catch(e) {}"
         "  })();"
         "</script>"
-    ) if prof_on else ""
+    )
 
-    # Render chip and dropdown
-    st.markdown(chip_html + dropdown_html, unsafe_allow_html=True)
-    # Only render the overlay toggle button when dropdown is closed to avoid intercepting clicks
-    if not prof_on:
-        if st.button(" ", key="chip_toggle_btn"):
-            st.session_state["show_profile"] = True
-            st.rerun()
-    else:
-        # When dropdown is open, provide a close button
-        if st.button(" ", key="chip_close_btn"):
-            st.session_state["show_profile"] = False
-            st.rerun()
+    # Render native menu
+    st.markdown(menu_html, unsafe_allow_html=True)
     # No extra visible logout controls; link navigates with ?logout=1 which triggers server _logout()
 
 # ---------------------- Knowledgebase Page ----------------------
@@ -1623,193 +1665,229 @@ if page == "Knowledgebase":
                 )
                 
                 st.markdown("<br>", unsafe_allow_html=True)
-                if st.button("Save changes", key=f"kb_ce_save_{_pid}"):
-                    if (
-                        name_val != _cur.get("name") or
-                        desc_val != _cur.get("description") or
-                        new_pdfs
-                    ):
-                        user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
-                        # If new PDFs were uploaded, process them
-                        pdf_path = _cur.get("pdf_path", "")
-                        if new_pdfs and pdf_path:
-                            try:
-                                # Process the first PDF file (or merge multiple if needed)
-                                # For now, we'll use the first file
-                                first_pdf = new_pdfs[0]
-                                _bytes = first_pdf.read()
-                                with open(pdf_path, "wb") as f:
-                                    f.write(_bytes)
+                cols_actions = st.columns([1, 6, 1])
+                with cols_actions[0]:
+                    if st.button("Clear", key=f"kb_ce_clear_{_pid}"):
+                        try:
+                            for _k in [f"kb_ce_name_{_pid}", f"kb_ce_desc_{_pid}", f"kb_ce_edit_pdf_{_pid}"]:
+                                if _k in st.session_state:
+                                    del st.session_state[_k]
+                            # Switch to create mode
+                            st.session_state["kb_selected_rows"] = []
+                            # Also clear any create form remnants
+                            for _k in ["kb_ce_new_name", "kb_ce_new_desc", "kb_ce_new_pdf"]:
+                                if _k in st.session_state:
+                                    del st.session_state[_k]
+                            # Clear any table selections from data editor
+                            if "kb_inline_de" in st.session_state:
+                                del st.session_state["kb_inline_de"]
+                        except Exception:
+                            pass
+                        st.rerun()
+                with cols_actions[2]:
+                    if st.button("Save changes", key=f"kb_ce_save_{_pid}"):
+                        if (
+                            name_val != _cur.get("name") or
+                            desc_val != _cur.get("description") or
+                            new_pdfs
+                        ):
+                            user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                            # If new PDFs were uploaded, process them
+                            pdf_path = _cur.get("pdf_path", "")
+                            if new_pdfs and pdf_path:
                                 try:
-                                    upload_url = (str(
-                                        (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
-                                        or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
-                                        or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
-                                        or st.secrets.get("upload_url")
-                                        or os.environ.get("CONFIG_URL")
-                                        or os.environ.get("UPLOAD_WEBHOOK_URL")
-                                        or ""
-                                    )).strip()
-                                except Exception:
-                                    upload_url = ""
-                                if not upload_url:
-                                    st.warning("Upload webhook URL not configured; delete webhook not sent.")
-                                if upload_url:
+                                    # Process the first PDF file (or merge multiple if needed)
+                                    # For now, we'll use the first file
+                                    first_pdf = new_pdfs[0]
+                                    _bytes = first_pdf.read()
+                                    with open(pdf_path, "wb") as f:
+                                        f.write(_bytes)
                                     try:
-                                        pass
+                                        upload_url = (str(
+                                            (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
+                                            or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
+                                            or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
+                                            or st.secrets.get("upload_url")
+                                            or os.environ.get("CONFIG_URL")
+                                            or os.environ.get("UPLOAD_WEBHOOK_URL")
+                                            or ""
+                                        )).strip()
                                     except Exception:
-                                        st.warning("Failed to call upload webhook")
-                                try:
-                                    text = extract_text_from_pdf(pdf_path)
-                                    chunks = chunk_text(text)
-                                except Exception:
-                                    chunks = []
-                                try:
-                                    retriever.index_product(_pid, chunks)
+                                        upload_url = ""
+                                    if not upload_url:
+                                        st.warning("Upload webhook URL not configured; delete webhook not sent.")
+                                    if upload_url:
+                                        try:
+                                            pass
+                                        except Exception:
+                                            st.warning("Failed to call upload webhook")
+                                    try:
+                                        text = extract_text_from_pdf(pdf_path)
+                                        chunks = chunk_text(text)
+                                    except Exception:
+                                        chunks = []
+                                    try:
+                                        retriever.index_product(_pid, chunks)
+                                    except Exception:
+                                        pass
+                                    if len(new_pdfs) > 1:
+                                        st.info(f"Note: {len(new_pdfs)} files selected, but only the first file was processed.")
                                 except Exception:
                                     pass
-                                if len(new_pdfs) > 1:
-                                    st.info(f"Note: {len(new_pdfs)} files selected, but only the first file was processed.")
-                            except Exception:
-                                pass
-                        # Always notify webhook for edit (with or without a new file)
-                        try:
-                            upload_url = (str(
-                                (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
-                                or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
-                                or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
-                                or st.secrets.get("upload_url")
-                                or os.environ.get("CONFIG_URL")
-                                or os.environ.get("UPLOAD_WEBHOOK_URL")
-                                or ""
-                            )).strip()
-                        except Exception:
-                            upload_url = ""
-                        if upload_url:
+                            # Always notify webhook for edit (with or without a new file)
                             try:
-                                try:
-                                    fname = getattr(new_pdfs[0], "name", None) if new_pdfs else None
-                                except Exception:
-                                    fname = None
-                                if not fname:
-                                    try:
-                                        fname = os.path.basename(pdf_path) or "uploaded.pdf"
-                                    except Exception:
-                                        fname = "uploaded.pdf"
-                                file_bytes = None
-                                try:
-                                    with open(pdf_path, "rb") as _f:
-                                        file_bytes = _f.read()
-                                except Exception:
-                                    file_bytes = None
-                                _data = {
-                                    "id": _pid,
-                                    "name": name_val,
-                                    "operation": "edit",
-                                    "description": desc_val,
-                                    "pdf_path": pdf_path,
-                                    "created_by": _cur.get("created_by", ""),
-                                    "created_at": _cur.get("created_at", ""),
-                                    "updated_by": user_email,
-                                    "updated_at": datetime.now().isoformat(timespec="seconds"),
-                                }
-                                if file_bytes is not None:
-                                    _resp = requests.post(
-                                        upload_url,
-                                        data=_data,
-                                        files={"file": (fname, file_bytes, "application/pdf")},
-                                        timeout=20,
-                                    )
-                                else:
-                                    _resp = requests.post(
-                                        upload_url,
-                                        data=_data,
-                                        timeout=20,
-                                    )
-                                try:
-                                    _j = _resp.json()
-                                    if bool(_j.get("success")):
-                                        st.success(str(_j.get("message") or "File uploaded successfully"))
-                                    else:
-                                        st.warning(str(_j.get("message") or "Upload webhook did not confirm success"))
-                                except Exception:
-                                    st.warning("Upload webhook responded without JSON")
+                                upload_url = (str(
+                                    (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
+                                    or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
+                                    or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
+                                    or st.secrets.get("upload_url")
+                                    or os.environ.get("CONFIG_URL")
+                                    or os.environ.get("UPLOAD_WEBHOOK_URL")
+                                    or ""
+                                )).strip()
                             except Exception:
-                                st.warning("Failed to call upload webhook")
-                        # Removed: store.upsert() - using database only
-                        st.success("Saved changes.")
-                        st.rerun()
-                    else:
-                        st.info("No changes detected.")
+                                upload_url = ""
+                            if upload_url:
+                                try:
+                                    try:
+                                        fname = getattr(new_pdfs[0], "name", None) if new_pdfs else None
+                                    except Exception:
+                                        fname = None
+                                    if not fname:
+                                        try:
+                                            fname = os.path.basename(pdf_path) or "uploaded.pdf"
+                                        except Exception:
+                                            fname = "uploaded.pdf"
+                                    file_bytes = None
+                                    try:
+                                        with open(pdf_path, "rb") as _f:
+                                            file_bytes = _f.read()
+                                    except Exception:
+                                        file_bytes = None
+                                    _data = {
+                                        "id": _pid,
+                                        "name": name_val,
+                                        "operation": "edit",
+                                        "description": desc_val,
+                                        "pdf_path": pdf_path,
+                                        "created_by": _cur.get("created_by", ""),
+                                        "created_at": _cur.get("created_at", ""),
+                                        "updated_by": user_email,
+                                        "updated_at": datetime.now().isoformat(timespec="seconds"),
+                                    }
+                                    if file_bytes is not None:
+                                        _resp = requests.post(
+                                            upload_url,
+                                            data=_data,
+                                            files={"file": (fname, file_bytes, "application/pdf")},
+                                            timeout=20,
+                                        )
+                                    else:
+                                        _resp = requests.post(
+                                            upload_url,
+                                            data=_data,
+                                            timeout=20,
+                                        )
+                                    try:
+                                        _j = _resp.json()
+                                        if bool(_j.get("success")):
+                                            st.toast(str(_j.get("message") or "File uploaded successfully"), icon="✅")
+                                        else:
+                                            st.toast(str(_j.get("message") or "Upload webhook did not confirm success"), icon="⚠️")
+                                    except Exception:
+                                        st.toast("Upload webhook responded without JSON", icon="⚠️")
+                                except Exception:
+                                    st.toast("Failed to call upload webhook", icon="⚠️")
+                            # Removed: store.upsert() - using database only
+                            st.toast("Saved changes.", icon="✅")
+                            st.rerun()
+                        else:
+                            st.toast("No changes detected.", icon="ℹ️")
             else:
                 name_c = st.text_input("Knowledgebase name", key="kb_ce_new_name")
                 desc_c = st.text_input("Short description", key="kb_ce_new_desc")
                 pdf_c = st.file_uploader("Upload PDF", type=["pdf"], key="kb_ce_new_pdf")
-                if st.button("Create Knowledgebase", key="kb_ce_new_submit"):
-                    if not name_c:
-                        st.warning("Please enter a Knowledgebase name.")
-                    elif not pdf_c:
-                        st.warning("Please upload a product PDF.")
-                    else:
-                        pid = str(uuid.uuid4())
-                        pdf_path = os.path.join(PDF_DIR, f"{pid}.pdf")
-                        _bytes = pdf_c.read()
-                        with open(pdf_path, "wb") as f:
-                            f.write(_bytes)
+                cols_actions_new = st.columns([1, 6, 1])
+                with cols_actions_new[0]:
+                    if st.button("Clear", key="kb_ce_new_clear"):
                         try:
-                            upload_url = (str(
-                                (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
-                                or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
-                                or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
-                                or st.secrets.get("upload_url")
-                                or os.environ.get("CONFIG_URL")
-                                or os.environ.get("UPLOAD_WEBHOOK_URL")
-                                or ""
-                            )).strip()
+                            for _k in ["kb_ce_new_name", "kb_ce_new_desc", "kb_ce_new_pdf"]:
+                                if _k in st.session_state:
+                                    del st.session_state[_k]
+                            # Ensure we are in create mode
+                            st.session_state["kb_selected_rows"] = []
+                            # Clear any table selections from data editor
+                            if "kb_inline_de" in st.session_state:
+                                del st.session_state["kb_inline_de"]
                         except Exception:
-                            upload_url = ""
-                        if upload_url:
-                            try:
-                                _fname = getattr(pdf_c, "name", "uploaded.pdf")
-                                user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
-                                _resp = requests.post(
-                                    upload_url,
-                                    data={
-                                        "id": pid,
-                                        "name": name_c,
-                                        "operation": "create",
-                                        "description": (desc_c or ""),
-                                        "pdf_path": pdf_path,
-                                        "created_by": user_email,
-                                        "created_at": datetime.now().isoformat(timespec="seconds"),
-                                        "updated_by": "",
-                                        "updated_at": "",
-                                    },
-                                    files={"file": (_fname, _bytes, "application/pdf")},
-                                    timeout=20,
-                                )
-                                try:
-                                    _j = _resp.json()
-                                    if bool(_j.get("success")):
-                                        st.success(str(_j.get("message") or "File uploaded successfully"))
-                                    else:
-                                        st.warning(str(_j.get("message") or "Upload webhook did not confirm success"))
-                                except Exception:
-                                    st.warning("Upload webhook responded without JSON")
-                            except Exception:
-                                st.warning("Failed to call upload webhook")
-                        try:
-                            text = extract_text_from_pdf(pdf_path)
-                            chunks = chunk_text(text)
-                        except Exception as e:
-                            st.error(f"Failed to process PDF: {e}")
-                            chunks = []
-                        user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
-                        emails_list: List[str] = [user_email] if user_email else []
-                        # Removed: store.upsert() - using database only
-                        retriever.index_product(pid, chunks)
-                        st.success("Knowledgebase created and indexed successfully.")
+                            pass
                         st.rerun()
+                with cols_actions_new[2]:
+                    if st.button("Create", key="kb_ce_new_submit"):
+                        if not name_c:
+                            st.toast("Please enter a Knowledgebase name.", icon="⚠️")
+                        elif not pdf_c:
+                            st.toast("Please upload a product PDF.", icon="⚠️")
+                        else:
+                            pid = str(uuid.uuid4())
+                            pdf_path = os.path.join(PDF_DIR, f"{pid}.pdf")
+                            _bytes = pdf_c.read()
+                            with open(pdf_path, "wb") as f:
+                                f.write(_bytes)
+                            try:
+                                upload_url = (str(
+                                    (CONFIG_TOML.get("custom", {}) or {}).get("UPLOAD_WEBHOOK_URL")
+                                    or CONFIG_TOML.get("UPLOAD_WEBHOOK_URL")
+                                    or ((st.secrets.get("configurl") if hasattr(st, "secrets") else None))
+                                    or st.secrets.get("upload_url")
+                                    or os.environ.get("CONFIG_URL")
+                                    or os.environ.get("UPLOAD_WEBHOOK_URL")
+                                    or ""
+                                )).strip()
+                            except Exception:
+                                upload_url = ""
+                            if upload_url:
+                                try:
+                                    _fname = getattr(pdf_c, "name", "uploaded.pdf")
+                                    user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                                    _resp = requests.post(
+                                        upload_url,
+                                        data={
+                                            "id": pid,
+                                            "name": name_c,
+                                            "operation": "create",
+                                            "description": (desc_c or ""),
+                                            "pdf_path": pdf_path,
+                                            "created_by": user_email,
+                                            "created_at": datetime.now().isoformat(timespec="seconds"),
+                                            "updated_by": "",
+                                            "updated_at": "",
+                                        },
+                                        files={"file": (_fname, _bytes, "application/pdf")},
+                                        timeout=20,
+                                    )
+                                    try:
+                                        _j = _resp.json()
+                                        if bool(_j.get("success")):
+                                            st.toast(str(_j.get("message") or "File uploaded successfully"), icon="✅")
+                                        else:
+                                            st.toast(str(_j.get("message") or "Upload webhook did not confirm success"), icon="⚠️")
+                                    except Exception:
+                                        st.toast("Upload webhook responded without JSON", icon="⚠️")
+                                except Exception:
+                                    st.toast("Failed to call upload webhook", icon="⚠️")
+                            try:
+                                text = extract_text_from_pdf(pdf_path)
+                                chunks = chunk_text(text)
+                            except Exception as e:
+                                st.toast(f"Failed to process PDF: {e}", icon="❌")
+                                chunks = []
+                            user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
+                            emails_list: List[str] = [user_email] if user_email else []
+                            # Removed: store.upsert() - using database only
+                            retriever.index_product(pid, chunks)
+                            st.toast("Knowledgebase created and indexed successfully.", icon="✅")
+                            st.rerun()
 
         # Inline editing table using Streamlit Data Editor
         if products:
@@ -1981,7 +2059,7 @@ if page == "Knowledgebase":
                                 except Exception:
                                     upload_url = ""
                                 if not upload_url:
-                                    st.warning("Upload webhook URL not configured; delete webhook not sent.")
+                                    st.toast("Upload webhook URL not configured; delete webhook not sent.", icon="⚠️")
                                 if upload_url:
                                     try:
                                         cur = None
@@ -2068,7 +2146,7 @@ elif page == "Dashbord":
     Dashboard().render()
 
 # ---------------------- aarya Page ----------------------
-elif page == "aarya":
+elif page == "Aarya":
 
     repo = get_pdf_metadata_repo()
     products = _enrich_rows_with_status_label(repo.list_all())
@@ -2214,16 +2292,7 @@ elif page == "aarya":
                         st.rerun()
 
         selected_id = name_to_id[selected_name]
-        # Update toolbar title to current Knowledgebase name with professional suffix
-        safe_title = selected_name.replace("'", "\\'") + " — Knowledgebase QA"
-        st.markdown(
-            f"""
-            <style>
-              div[data-testid='stToolbar']::after {{ content: '{safe_title}'; }}
-            </style>
-            """,
-            unsafe_allow_html=True,
-        )
+        # Toolbar: keep default Streamlit controls (e.g., theme toggle) with no overlays
 
         # Chat UI
         chat_key = f"chat_{selected_id}"
