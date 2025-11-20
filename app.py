@@ -55,6 +55,7 @@ from lib.db_config import DatabaseConfig
 from lib.pdf_utils import extract_text_from_pdf, chunk_text
 from lib.retriever import Retriever
 from lib.pdf_metadata_repo import PdfMetadataRepository
+from dashboard import Dashboard
 # OAuth component will be lazy-imported inside the auth function to avoid NameError interruptions
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
@@ -144,6 +145,41 @@ def _get_ws_url() -> str:
             or os.environ.get("AARYA_WEBSOCKET_URL")
             or ""
         )).strip()
+        
+        # Append client_id, client_name, and user_email as query parameters
+        if url:
+            # Get user session id (client_id)
+            client_id = st.session_state.get("aarya_session_id", "")
+            if not client_id:
+                client_id = f"session_{uuid.uuid4().hex[:8]}_{int(time.time()*1000)}"
+                st.session_state["aarya_session_id"] = client_id
+            
+            # Get logged in user information
+            user = st.session_state.get("user") or {}
+            client_name = user.get("name", "")
+            user_email = user.get("email", "")
+            
+            # Parse URL and append query parameters
+            parsed = urllib.parse.urlparse(url)
+            params = urllib.parse.parse_qs(parsed.query)
+            
+            # Add/update parameters
+            params["client_id"] = [client_id]
+            if client_name:
+                params["client_name"] = [client_name]
+            if user_email:
+                params["user_email"] = [user_email]
+            
+            # Reconstruct URL with updated query parameters
+            new_query = urllib.parse.urlencode(params, doseq=True)
+            url = urllib.parse.urlunparse((
+                parsed.scheme,
+                parsed.netloc,
+                parsed.path,
+                parsed.params,
+                new_query,
+                parsed.fragment
+            ))
     except Exception:
         url = ""
     return url
@@ -349,7 +385,7 @@ if "chat_histories" not in st.session_state:
 if "show_create_dialog" not in st.session_state:
     st.session_state["show_create_dialog"] = False
 if "nav_page" not in st.session_state:
-    st.session_state["nav_page"] = "aarya"
+    st.session_state["nav_page"] = "Dashbord"
 if "user" not in st.session_state:
     st.session_state["user"] = None
 if "show_profile" not in st.session_state:
@@ -575,13 +611,13 @@ LOGO_SVG_PATH = os.path.join(ASSETS_DIR, "logo.svg")
 
 # Page config with custom favicon if available
 page_icon = ICON_PATH if os.path.exists(ICON_PATH) else "📄"
-st.set_page_config(page_title="Knowledge Base Assistant", page_icon=page_icon, layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Knowledgebase Dashboard", page_icon=page_icon, layout="wide", initial_sidebar_state="expanded")
 
 # Prefer native logo placement (goes into stLogoSpacer) — use logo.svg for navbar
 LOGO1_SVG_PATH = os.path.join(ASSETS_DIR, "logo1.svg")
 _chosen_logo_rel = "assets/logo.svg" if os.path.exists(LOGO_SVG_PATH) else ("assets/logo1.svg" if os.path.exists(LOGO1_SVG_PATH) else None)
 try:
-    if _chosen_logo_rel:
+    if st.session_state.get("user") and _chosen_logo_rel:
         st.logo(_chosen_logo_rel)
 except Exception:
     pass
@@ -616,7 +652,7 @@ st.markdown(
       /* Hide Deploy button in toolbar */
       div[data-testid='stAppDeployButton'] { display: none !important; }
       /* Hide Streamlit MainMenu (cover multiple versions/selectors) */
-      div[data-testid='stMainMenu'], #MainMenu { display: none !important; visibility: hidden !important; }
+      div[data-testid="stMainMenu"], #MainMenu { display: none !important; visibility: hidden !important; }
       /* Put title into Streamlit's top toolbar and allow right-side chip */
       div[data-testid="stToolbar"] { position: relative; overflow: visible; padding-right: 180px; }
       /* Prevent Streamlit toolbar actions from intercepting clicks over our chip */
@@ -636,7 +672,7 @@ st.markdown(
         background-size: contain;
       }
       div[data-testid="stToolbar"]::after {
-        content: "Knowledge Base Assistant";
+        content: "Knowledgebase Dashboard";
         position: absolute;
         left: 50%;
         top: 50%;
@@ -674,15 +710,40 @@ st.markdown(
         border-radius: 8px !important;
         padding: 0.5rem 0.9rem !important;
       }
+      /* Hide Streamlit spinners and running indicators */
+      div[data-testid="stSpinner"],
+      .stSpinner,
+      div[aria-live="polite"][data-baseweb="notification"] {
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+      }
       /* Sidebar radio spacing */
       section[data-testid="stSidebar"] label { margin-bottom: 4px; }
 
       /* Sidebar look & option-menu polish */
       section[data-testid="stSidebar"] {
         background: var(--sidebar-bg);
+        background-image: none !important; /* remove theme gradients */
       }
-      /* Reduce default Streamlit sidebar inner padding */
-      section[data-testid="stSidebar"] .block-container { padding-top: 4px; padding-bottom: 10px; }
+      /* Make option_menu UL fully transparent to inherit sidebar background */
+      section[data-testid="stSidebar"] ul.nav,
+      section[data-testid="stSidebar"] ul.nav.nav-pills,
+      section[data-testid="stSidebar"] ul.nav.nav-pills * {
+        background: transparent !important;
+        box-shadow: none !important;
+        border: 0 !important;
+      }
+      section[data-testid="stSidebar"] ul.nav { margin: 0 !important; padding: 0 !important; border-radius: 0 !important; }
+      section[data-testid="stSidebar"] ul.nav > li { margin: 0 !important; }
+      /* Keep selected item highlight while base stays unified */
+      section[data-testid="stSidebar"] ul.nav > li > a.nav-link.active {
+        background-color: #eaf2ff !important;
+        color: #111827 !important;
+      }
+      /* Remove inner padding so menu spans full width */
+      section[data-testid="stSidebar"] .block-container { padding: 0 !important; }
+      section[data-testid="stSidebar"] .block-container > div { margin: 0 !important; padding: 0 !important; background: var(--sidebar-bg) !important; }
       /* Sidebar width */
       div[data-testid="stSidebar"] {
         min-width: 260px; /* fallback */
@@ -755,6 +816,37 @@ if _logo1_rel:
         unsafe_allow_html=True,
     )
 
+    # Ensure Google OAuth button style matches Sign In button (compact)
+    st.markdown(
+        """
+        <style>
+          /* Force OAuth button to match Sign In size/shape */
+          div.st-key-google button {
+            font-size: 10px !important;
+            font-weight: 400 !important; /* normal, not bold */
+            text-transform: none !important;
+            padding: 12px 14px !important; /* match Sign In button */
+            min-height: 44px !important;   /* match Sign In button */
+            border-radius: 8px !important; /* match Sign In button */
+            width: 100% !important;
+            max-width: 320px !important;
+            margin: 8px auto 0 !important;
+            box-sizing: border-box !important;
+          }
+          /* Remove the big left badge/icon that makes it look wider */
+          div.st-key-google button::before,
+          div.st-key-google button::after {
+            content: none !important;
+            background: none !important;
+            width: 0 !important;
+            height: 0 !important;
+            display: none !important;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
 # (Removed external icon dependency for reactions; no like/dislike buttons shown)
 
 # ----- Google OAuth helpers (placed before first use) -----
@@ -781,7 +873,7 @@ def _render_auth():
                 # Lazy import to avoid NameError if the package isn't ready yet
                 from streamlit_oauth import OAuth2Component  # type: ignore
                 oauth2 = OAuth2Component(cid, csec, auth_url, token_url, token_url, revoke_url)
-                result = oauth2.authorize_button("sign in with sixdee mail", redir, scope="openid email profile", key="google")
+                result = oauth2.authorize_button("Sign In with Sixdee Mail", redir, scope="openid email profile", key="google")
             except Exception:
                 had_error = True
             # Show fallback link only if button failed
@@ -875,11 +967,6 @@ if not st.session_state.get("user"):
             min-height: 44px !important;
           }
           div.st-key-login_submit .stButton>button:hover { background:#F26D21 !important; border-color:#F26D21 !important; }
-          /* Fallback: center any Streamlit button container inside login wrap */
-          .login-wrap .stButton { display:block; max-width:320px; margin: 8px auto 0; }
-          /* Explicitly target keyed Sign In container to center it */
-          div.st-key-login_submit { max-width:320px; width:100%; margin: 8px auto 0; }
-          div.st-key-login_submit .stButton>button { width:100% !important; }
           /* Google button look (official blue) */
           .login-google .stButton>button, .login-google a, .login-google button, div.st-key-google button {
             background: #4285F4 !important; /* Google blue per screenshot */
@@ -1056,6 +1143,46 @@ if not st.session_state.get("user"):
         unsafe_allow_html=True,
     )
 
+    # Final overrides to ensure Google OAuth button matches Sign In size/shape
+    st.markdown(
+        """
+        <style>
+          /* Normalize Google OAuth button to match Sign In */
+          .login-google .stButton>button,
+          .login-google a,
+          .login-google button,
+          div.st-key-google button {
+            font-size: 14px !important;
+            font-weight: 600 !important;
+            text-transform: none !important;
+            padding: 12px 14px !important; /* match Sign In button */
+            min-height: 44px !important;   /* match Sign In button */
+            border-radius: 8px !important; /* match Sign In button */
+          }
+          /* Specifically make Sixdee OAuth button non-bold */
+          div.st-key-google button {
+            font-weight: 400 !important;
+          }
+          /* Remove decorative left badge to keep compact width */
+          .login-google .stButton>button::before,
+          .login-google a::before,
+          .login-google button::before,
+          div.st-key-google button::before,
+          .login-google .stButton>button::after,
+          .login-google a::after,
+          .login-google button::after,
+          div.st-key-google button::after {
+            content: none !important;
+            background: none !important;
+            width: 0 !important;
+            height: 0 !important;
+            display: none !important;
+          }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
     # Optional logout flash
     try:
         _qp = _read_query_params()
@@ -1132,13 +1259,13 @@ def _render_create_form(prefix: str = "dialog"):
         st.info("Admin access required to create products.")
         return
     with st.form(f"product_form_{prefix}"):
-        name = st.text_input("Knowledge base name", key=f"name_{prefix}")
-        desc = st.text_area("Knowledge base description", key=f"desc_{prefix}")
+        name = st.text_input("Knowledgebase name", key=f"name_{prefix}")
+        desc = st.text_area("Knowledgebase description", key=f"desc_{prefix}")
         pdf_file = st.file_uploader("Upload PDF", type=["pdf"], key=f"pdf_{prefix}")
-        submitted = st.form_submit_button("Create/Update Knowledge base")
+        submitted = st.form_submit_button("Create/Update Knowledgebase")
     if submitted:
         if not name:
-            st.warning("Please enter a knowledge base name.")
+            st.warning("Please enter a Knowledgebase name.")
         elif not pdf_file:
             st.warning("Please upload a product PDF.")
         else:
@@ -1158,19 +1285,19 @@ def _render_create_form(prefix: str = "dialog"):
                 chunks = []
             # Removed: store.upsert() - using database only
             retriever.index_product(product_id, chunks)
-            st.success("Knowledge base saved and indexed successfully.")
+            st.success("Knowledgebase saved and indexed successfully.")
 
-# Create Knowledge base dialog (admin protected) with fallback
+# Create Knowledgebase dialog (admin protected) with fallback
 if st.session_state.get("show_create_dialog"):
     if hasattr(st, "dialog"):
-        with st.dialog("Create Knowledge base"):
+        with st.dialog("Create Knowledgebase"):
             _render_create_form("dialog")
             cols = st.columns([1, 1, 1])
             if cols[2].button("Close"):
                 st.session_state["show_create_dialog"] = False
     else:
         with st.sidebar:
-            st.subheader("Create Knowledge base")
+            st.subheader("Create Knowledgebase")
             _render_create_form("sidebar")
             if st.button("Close"):
                 st.session_state["show_create_dialog"] = False
@@ -1178,23 +1305,31 @@ if st.session_state.get("show_create_dialog"):
 # Footer logo removed per request
 
 # Ensure a safe default for the current page before rendering sidebar/menu
-page = st.session_state.get("nav_page", "aarya")
+page = st.session_state.get("nav_page", "Dashbord")
 
 # Minimal sidebar navigation (clean, no captions)
 with st.sidebar:
-    _options = ["aarya"]
+    _options = ["Dashbord", "aarya"]
+    _icons = ["speedometer2", "chat-dots"]
     if is_admin_user():
-        _options.append("Knowledge base")
-    _default_index = 0 if page == "aarya" else 1
+        _options.append("Knowledgebase")
+        _icons.append("folder-plus")
+    _default_index = _options.index(page) if page in _options else 0
     try:
         side_selected = option_menu(
             menu_title=None,
             options=_options,
-            icons=["chat-dots", "folder-plus"],
+            icons=_icons,
             menu_icon="list",
             default_index=_default_index,
             styles={
-                "container": {"padding": "0", "background-color": "transparent", "margin": "0"},
+                "container": {
+                    "padding": "0",
+                    "background-color": "var(--sidebar-bg)",
+                    "margin": "0",
+                    "border": "0",
+                    "box-shadow": "none",
+                },
                 "icon": {"color": "#2563eb", "font-size": "16px"},
                 "nav-link": {"font-size": "14px", "padding": "8px 12px", "border-radius": "10px", "margin": "2px 0"},
                 "nav-link-selected": {"background-color": "#eaf2ff", "color": "#111827"},
@@ -1317,13 +1452,13 @@ if st.session_state.get("user"):
             st.rerun()
     # No extra visible logout controls; link navigates with ?logout=1 which triggers server _logout()
 
-# ---------------------- Knowledge Base Page ----------------------
-if page == "Knowledge base":
+# ---------------------- Knowledgebase Page ----------------------
+if page == "Knowledgebase":
     # Update toolbar title for this page
     st.markdown(
         """
         <style>
-          div[data-testid='stToolbar']::after { content: 'Knowledge base'; }
+          div[data-testid='stToolbar']::after { content: 'Knowledgebase'; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -1338,7 +1473,7 @@ if page == "Knowledge base":
         # Create/Edit appears before the table; driven by previously selected rows (from session_state)
         sel_rows_state = st.session_state.get("kb_selected_rows", [])
         is_edit_state = len(sel_rows_state) == 1
-        st.markdown(f"**{'Edit knowledge base' if is_edit_state else 'Create knowledge base'}**")
+        st.markdown(f"**{'Edit Knowledgebase' if is_edit_state else 'Create Knowledgebase'}**")
         with st.container():
             if is_edit_state:
                 _pid = sel_rows_state[0].get("id")
@@ -1607,12 +1742,12 @@ if page == "Knowledge base":
                     else:
                         st.info("No changes detected.")
             else:
-                name_c = st.text_input("Knowledge base name", key="kb_ce_new_name")
+                name_c = st.text_input("Knowledgebase name", key="kb_ce_new_name")
                 desc_c = st.text_input("Short description", key="kb_ce_new_desc")
                 pdf_c = st.file_uploader("Upload PDF", type=["pdf"], key="kb_ce_new_pdf")
-                if st.button("Create Knowledge base", key="kb_ce_new_submit"):
+                if st.button("Create Knowledgebase", key="kb_ce_new_submit"):
                     if not name_c:
-                        st.warning("Please enter a knowledge base name.")
+                        st.warning("Please enter a Knowledgebase name.")
                     elif not pdf_c:
                         st.warning("Please upload a product PDF.")
                     else:
@@ -1673,7 +1808,7 @@ if page == "Knowledge base":
                         emails_list: List[str] = [user_email] if user_email else []
                         # Removed: store.upsert() - using database only
                         retriever.index_product(pid, chunks)
-                        st.success("Knowledge base created and indexed successfully.")
+                        st.success("Knowledgebase created and indexed successfully.")
                         st.rerun()
 
         # Inline editing table using Streamlit Data Editor
@@ -1691,7 +1826,7 @@ if page == "Knowledge base":
             rows = []
             for p in products:
                 rows.append({
-                    "Knowledge base name": p.get("name", ""),
+                    "Knowledgebase name": p.get("name", ""),
                     "Description": p.get("description", ""),
                     "Created by": p.get("created_by", ""),
                     "Created at": p.get("created_at", ""),
@@ -1704,9 +1839,9 @@ if page == "Knowledge base":
             # Include hidden _id column to keep a stable row identity even if user sorts in the editor
             # Place 'Select' as the first column as requested
             # ID column is kept in dataframe but hidden from display
-            display_cols = ["Select", "Knowledge base name", "Description", "Created by", "Created at", "Updated by", "Updated at", "_id"]
+            display_cols = ["Select", "Knowledgebase name", "Description", "Created by", "Created at", "Updated by", "Updated at", "_id"]
             if df.empty:
-                st.info("No knowledge bases available.")
+                st.info("No Knowledgebases available.")
             else:
                 # Place a container BEFORE the table to render the action bar above the table header
                 ab_container = st.container()
@@ -1716,7 +1851,7 @@ if page == "Knowledge base":
                     hide_index=True,
                     width='stretch',
                     column_config={
-                        "Knowledge base name": st.column_config.TextColumn(disabled=False),
+                        "Knowledgebase name": st.column_config.TextColumn(disabled=False),
                         "Description": st.column_config.TextColumn(disabled=False),
                         "Created by": st.column_config.TextColumn(disabled=True),
                         "Created at": st.column_config.TextColumn(disabled=True),
@@ -1914,9 +2049,9 @@ if page == "Knowledge base":
                         cur = original_by_id.get(pid)
                         if not cur:
                             continue
-                        new_name = str(row.get("Knowledge base name") or "")
+                        new_name = str(row.get("Knowledgebase name") or "")
                         new_desc = str(row.get("Description") or "")
-                        if new_name != (cur.get("Knowledge base name") or "") or new_desc != (cur.get("Description") or ""):
+                        if new_name != (cur.get("Knowledgebase name") or "") or new_desc != (cur.get("Description") or ""):
                             cur_store = next((p for p in products if p.get("id") == pid), None)
                             user_email = ((st.session_state.get("user") or {}).get("email") or "").strip().lower()
                             # Removed: store.upsert() - using database only
@@ -1926,6 +2061,11 @@ if page == "Knowledge base":
                         st.rerun()
                 except Exception:
                     pass
+
+# ---------------------- Dashbord Page ----------------------
+elif page == "Dashbord":
+
+    Dashboard().render()
 
 # ---------------------- aarya Page ----------------------
 elif page == "aarya":
@@ -1961,98 +2101,121 @@ elif page == "aarya":
                 margin-bottom: 0.25rem !important;
                 padding-bottom: 0 !important;
               }
+              /* Reconnect button alignment and styles (global) */
+              div.st-key-reconnect_btn {
+                margin-top: 0 !important;
+                margin-left: 10px !important;
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                height: 40px !important; /* match select height */
+              }
+              /* Wrapper to ensure no extra element pushes the button down */
+              div.st-key-reconnect_btn_wrap {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-end !important;
+                height: 40px !important; /* match select height */
+                margin: 0 !important;
+                padding: 0 !important;
+              }
+              div.st-key-reconnect_btn button,
+              div.st-key-reconnect_btn button[kind="primary"],
+              div.st-key-reconnect_btn button[kind="secondary"] {
+                border-radius: 9999px !important;
+                padding: 0 !important;
+                min-height: 40px !important;
+                height: 40px !important;
+                width: 40px !important;
+                min-width: 40px !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                line-height: 1 !important;
+                font-size: 16px !important;
+                box-shadow: none !important;
+                border-width: 1px !important;
+                transition: background-color .15s ease, border-color .15s ease, color .15s ease;
+                margin-top: -1px !important; /* optical centering */
+              }
+              div.st-key-reconnect_btn button[kind="secondary"] {
+                background: #f3f4f6 !important; /* gray-100 */
+                background-color: #f3f4f6 !important;
+                border-color: #e5e7eb !important; /* gray-200 */
+                color: #6b7280 !important; /* gray-500 */
+              }
+              div.st-key-reconnect_btn button[kind="secondary"]:hover {
+                background: #f3f4f6 !important;
+                background-color: #f3f4f6 !important;
+                border-color: #d1d5db !important;
+                color: #374151 !important;
+              }
+              div.st-key-reconnect_btn button[kind="primary"] {
+                background: #f3f4f6 !important; /* gray-100 */
+                background-color: #f3f4f6 !important;
+                border-color: #e5e7eb !important; /* gray-200 */
+                color: #6b7280 !important; /* gray-500 */
+              }
+              div.st-key-reconnect_btn button[kind="primary"]:hover {
+                background: #ecfdf5 !important;
+                background-color: #ecfdf5 !important;
+                border-color: #34d399 !important;
+                color: #047857 !important;
+              }
+              div.st-key-reconnect_btn button:active,
+              div.st-key-reconnect_btn button:focus,
+              div.st-key-reconnect_btn button[kind="primary"]:active,
+              div.st-key-reconnect_btn button[kind="primary"]:focus,
+              div.st-key-reconnect_btn button[kind="secondary"]:active,
+              div.st-key-reconnect_btn button[kind="secondary"]:focus {
+                box-shadow: 0 0 0 3px rgba(16,185,129,0.15) !important;
+                outline: none !important;
+              }
             </style>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
         
-        # Clean control layout - adjusted column ratio for icon-sized button
-        col1, col2 = st.columns([20, 1])
-        
-        with col1:
-            selected_name = st.selectbox(
-                "📚 Select Knowledge Base",
-                list(name_to_id.keys()),
-                key="kb_selector"
-            )
-        
-        # Get the selected ID from the name
-        selected_id = name_to_id.get(selected_name)
-        
-        with col2:
-            # Reconnect button with status indicator (icon-sized)
-            st.markdown(
-                """
-                <style>
-                  div.st-key-reconnect_btn {
-                    display: flex;
-                    align-items: flex-end;
-                    height: 100%;
-                    justify-content: center;
-                  }
-                  div.st-key-reconnect_btn button,
-                  div.st-key-reconnect_btn button[kind="primary"],
-                  div.st-key-reconnect_btn button[kind="secondary"] {
-                    background: transparent !important;
-                    background-color: transparent !important;
-                    border: none !important;
-                    box-shadow: none !important;
-                    padding: 0.5rem !important;
-                    font-size: 24px !important;
-                    color: #374151 !important;
-                    min-height: auto !important;
-                    height: auto !important;
-                    width: auto !important;
-                    min-width: auto !important;
-                  }
-                  div.st-key-reconnect_btn button:hover,
-                  div.st-key-reconnect_btn button[kind="primary"]:hover,
-                  div.st-key-reconnect_btn button[kind="secondary"]:hover {
-                    background: transparent !important;
-                    background-color: transparent !important;
-                    opacity: 0.7 !important;
-                    border: none !important;
-                    box-shadow: none !important;
-                  }
-                  div.st-key-reconnect_btn button:active,
-                  div.st-key-reconnect_btn button:focus,
-                  div.st-key-reconnect_btn button[kind="primary"]:active,
-                  div.st-key-reconnect_btn button[kind="primary"]:focus,
-                  div.st-key-reconnect_btn button[kind="secondary"]:active,
-                  div.st-key-reconnect_btn button[kind="secondary"]:focus {
-                    background: transparent !important;
-                    background-color: transparent !important;
-                    box-shadow: none !important;
-                    border: none !important;
-                    outline: none !important;
-                  }
-                </style>
-                """,
-                unsafe_allow_html=True
-            )
-            
-            # Determine button label and type based on connection status
-            if "aarya_session_id" in st.session_state:
-                session_id = st.session_state.get("aarya_session_id", "")
-                button_label = "🔄"
-                button_type = "primary"
-                button_help = f"Connected • Session ID: {session_id} • Click to start new session"
-            else:
-                button_label = "🔄"
-                button_type = "secondary"
-                button_help = "Not connected • Send a message to start"
-            
-            if st.button(button_label, type=button_type, help=button_help, key="reconnect_btn"):
-                if "aarya_session_id" in st.session_state:
-                    del st.session_state["aarya_session_id"]
-                if "aarya_client_id" in st.session_state:
-                    del st.session_state["aarya_client_id"]
-                st.toast("Session reset successfully", icon="✅")
-                st.rerun()
-        
+        # Clean control layout - build a single row with inner columns for perfect alignment
+        outer_left, _outer_right_spacer = st.columns([21, 1])
+
+        with outer_left:
+            # Label
+            st.markdown("<div style='font-weight:600; font-size:0.9rem; margin-bottom:8px;'>Select Knowledgebase</div>", unsafe_allow_html=True)
+            # Row containing select and button
+            sel_col, btn_col = st.columns([20, 1])
+            with sel_col:
+                selected_name = st.selectbox(
+                    "📚 Select Knowledgebase",
+                    list(name_to_id.keys()),
+                    key="kb_selector",
+                    label_visibility="collapsed"
+                )
+            with btn_col:
+                # Reconnect button (wrapped to avoid extra top spacing)
+                with st.container(key="reconnect_btn_wrap"):
+                    # Determine button label and type based on connection status
+                    if "aarya_session_id" in st.session_state:
+                        session_id = st.session_state.get("aarya_session_id", "")
+                        button_label = "↻"
+                        button_type = "primary"
+                        button_help = f"Connected — Session: {session_id} — Click to start a new session"
+                    else:
+                        button_label = "↻"
+                        button_type = "secondary"
+                        button_help = "Not connected — Click to connect"
+
+                    if st.button(button_label, type=button_type, help=button_help, key="reconnect_btn"):
+                        if "aarya_session_id" in st.session_state:
+                            del st.session_state["aarya_session_id"]
+                        if "aarya_client_id" in st.session_state:
+                            del st.session_state["aarya_client_id"]
+                        st.toast("Session reset successfully", icon="✅")
+                        st.rerun()
+
         selected_id = name_to_id[selected_name]
-        # Update toolbar title to current knowledge base name with professional suffix
-        safe_title = selected_name.replace("'", "\\'") + " — Knowledge Base QA"
+        # Update toolbar title to current Knowledgebase name with professional suffix
+        safe_title = selected_name.replace("'", "\\'") + " — Knowledgebase QA"
         st.markdown(
             f"""
             <style>
@@ -2100,7 +2263,7 @@ elif page == "aarya":
                     st.markdown(f"<div class='meta-row'>{ts}</div>", unsafe_allow_html=True)
 
         # Modern chat input
-        user_msg = st.chat_input("Ask about the selected knowledge base...")
+        user_msg = st.chat_input("Ask about the selected Knowledgebase...")
         if user_msg:
             # Immediately add user message to chat history
             now = datetime.now().strftime("%Y-%m-%d %H:%M")
