@@ -823,8 +823,8 @@ st.markdown(
       .chip { display:none; }
       .stButton { margin: 0 !important; }
       .bubble-user { background:#ffffff; border:1px solid #e5e7eb; border-radius: 12px; padding:10px 12px; margin-bottom:6px; }
-      .bubble-assistant { background:#f1f5ff; border:1px solid #dbe4ff; border-radius: 12px; padding:10px 12px; margin-bottom:6px; }
-      .assistant-msg-wrapper { background:#f1f5ff; border:1px solid #dbe4ff; border-radius: 12px; padding:10px 12px; margin-bottom:6px; }
+      .bubble-assistant { background:#ffffff; border:1px solid #dbe4ff; border-radius: 12px; padding:10px 12px; margin-bottom:6px; }
+      .assistant-msg-wrapper { background:#ffffff; border:1px solid #dbe4ff; border-radius: 12px; padding:10px 12px; margin-bottom:6px; }
       .assistant-msg-wrapper p:first-child { margin-top: 0; }
       .assistant-msg-wrapper p:last-child { margin-bottom: 0; }
       .assistant-msg-wrapper ul, .assistant-msg-wrapper ol { margin: 0.5em 0; }
@@ -2249,6 +2249,92 @@ elif page == "Aarya":
                 box-shadow: 0 0 0 3px rgba(16,185,129,0.15) !important;
                 outline: none !important;
               }
+              /* Compact like/dislike buttons in chat */
+              /* Targets Streamlit button wrappers whose keys contain chat_ and _like_/_dislike_ */
+              /* Target the actual Streamlit button inside the keyed element container */
+              div.element-container[class*="st-key-chat_"][class*="_like_"] .stButton > button,
+              div.element-container[class*="st-key-chat_"][class*="_dislike_"] .stButton > button,
+              div[class*="st-key-chat_"][class*="_like_"] .stButton > button,
+              div[class*="st-key-chat_"][class*="_dislike_"] .stButton > button,
+              div[class*="st-key-chat_"][class*="_like_"] button,
+              div[class*="st-key-chat_"][class*="_dislike_"] button {
+                border-radius: 9999px !important;
+                padding: 0 !important;
+                min-height: 20px !important;
+                height: 20px !important;
+                width: 20px !important;
+                min-width: 20px !important;
+                display: inline-flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+                line-height: 1 !important;
+                font-size: 0 !important; /* hide emoji text */
+                margin: 4px 4px 0 0 !important; /* top spacing to align with timestamp */
+                box-shadow: none !important;
+                background: transparent !important;
+                background-color: transparent !important;
+                border: none !important;
+                border-color: transparent !important;
+                color: inherit !important;
+              }
+              /* Inject white icons using CSS pseudo-elements */
+              div.element-container[class*="st-key-chat_"][class*="_like_"] .stButton > button::before,
+              div.element-container[class*="st-key-chat_"][class*="_dislike_"] .stButton > button::before,
+              div[class*="st-key-chat_"][class*="_like_"] .stButton > button::before,
+              div[class*="st-key-chat_"][class*="_dislike_"] .stButton > button::before,
+              div[class*="st-key-chat_"][class*="_like_"] button::before,
+              div[class*="st-key-chat_"][class*="_dislike_"] button::before {
+                content: "";
+                display: block !important;
+                width: 16px !important;
+                height: 16px !important;
+                background-color: #6b7280 !important; /* gray-500 */
+                -webkit-mask-repeat: no-repeat !important;
+                -webkit-mask-position: center !important;
+                -webkit-mask-size: contain !important;
+                mask-repeat: no-repeat !important;
+                mask-position: center !important;
+                mask-size: contain !important;
+              }
+              /* Thumbs up mask */
+              div.element-container[class*="st-key-chat_"][class*="_like_"] .stButton > button::before,
+              div[class*="st-key-chat_"][class*="_like_"] .stButton > button::before,
+              div[class*="st-key-chat_"][class*="_like_"] button::before {
+                -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M2 21h4V9H2v12zM22 10c0-1.1-.9-2-2-2h-5.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14 1 7.59 7.41C7.22 7.78 7 8.3 7 8.83V19c0 1.1.9 2 2 2h7c.82 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1z'/></svg>") !important;
+                mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M2 21h4V9H2v12zM22 10c0-1.1-.9-2-2-2h-5.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14 1 7.59 7.41C7.22 7.78 7 8.3 7 8.83V19c0 1.1.9 2 2 2h7c.82 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-1z'/></svg>") !important;
+              }
+              /* Thumbs down mask */
+              div.element-container[class*="st-key-chat_"][class*="_dislike_"] .stButton > button::before,
+              div[class*="st-key-chat_"][class*="_dislike_"] .stButton > button::before,
+              div[class*="st-key-chat_"][class*="_dislike_"] button::before {
+                -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M15 3H8c-.82 0-1.54.5-1.84 1.22L3.14 11.27c-.09.23-.14.47-.14.73v1c0 1.1.9 2 2 2h5.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10 23l6.41-6.41c.37-.37.59-.89.59-1.42V5c0-1.1-.9-2-2-2zM22 3h-4v12h4V3z'/></svg>") !important;
+                mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M15 3H8c-.82 0-1.54.5-1.84 1.22L3.14 11.27c-.09.23-.14.47-.14.73v1c0 1.1.9 2 2 2h5.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L10 23l6.41-6.41c.37-.37.59-.89.59-1.42V5c0-1.1-.9-2-2-2zM22 3h-4v12h4V3z'/></svg>") !important;
+              }
+              /* Hover: darken icon color */
+              div.element-container[class*="st-key-chat_"][class*="_like_"] .stButton > button:hover::before,
+              div.element-container[class*="st-key-chat_"][class*="_dislike_"] .stButton > button:hover::before,
+              div[class*="st-key-chat_"][class*="_like_"] .stButton > button:hover::before,
+              div[class*="st-key-chat_"][class*="_dislike_"] .stButton > button:hover::before,
+              div[class*="st-key-chat_"][class*="_like_"] button:hover::before,
+              div[class*="st-key-chat_"][class*="_dislike_"] button:hover::before {
+                background-color: #374151 !important; /* gray-700 */
+              }
+              /* Keep hover clean (no bg/border) */
+              div[class*="st-key-chat_"][class*="_like_"] button:hover,
+              div[class*="st-key-chat_"][class*="_dislike_"] button:hover,
+              div[class*="st-key-chat_"][class*="_like_"] button:focus,
+              div[class*="st-key-chat_"][class*="_dislike_"] button:focus,
+              div[class*="st-key-chat_"][class*="_like_"] button:active,
+              div[class*="st-key-chat_"][class*="_dislike_"] button:active {
+                background: transparent !important;
+                background-color: transparent !important;
+                border: none !important;
+                border-color: transparent !important;
+                box-shadow: none !important;
+                outline: none !important;
+              }
+              /* Timestamp smaller and muted; prevent wrapping */
+              .chat-ts { font-size: 0.75rem; color: #6b7280; margin-top: 4px; white-space: nowrap; display: inline-block; }
             </style>
             """,
             unsafe_allow_html=True,
@@ -2304,6 +2390,7 @@ elif page == "Aarya":
             role = msg.get("role")
             text = msg.get("content", "")
             ts = msg.get("ts") or ""
+            msg_id_for_resp = msg.get("msg_id") or f"{chat_key}_msg_{i}"
             like = int(msg.get("like", 0))
             dislike = int(msg.get("dislike", 0))
 
@@ -2320,8 +2407,133 @@ elif page == "Aarya":
 </div>""",
                         unsafe_allow_html=True
                     )
-                    meta = st.columns([9,3])
-                    meta[1].markdown(f"<div class='chat-ts'>{ts}</div>", unsafe_allow_html=True)
+                    # Right-aligned meta row (timestamp + reactions)
+                    meta = st.columns([9, 4])
+                    # Like/Dislike controls for assistant messages
+                    like_key = f"{chat_key}_like_{i}"
+                    dislike_key = f"{chat_key}_dislike_{i}"
+                    liked = bool(like)
+                    disliked = bool(dislike)
+                    has_reacted = liked or disliked
+                    disable_like_btn = has_reacted
+                    disable_dislike_btn = has_reacted
+                    # Capture the user request that preceded this assistant response
+                    prev_user_text = ""
+                    try:
+                        if i > 0:
+                            prev_msg = st.session_state["chat_histories"][chat_key][i-1]
+                            if (prev_msg or {}).get("role") == "user":
+                                prev_user_text = str(prev_msg.get("content") or "")
+                    except Exception:
+                        prev_user_text = ""
+                    # Active-state coloring for icons (green for like, red for dislike)
+                    if liked:
+                        st.markdown(
+                            f"""
+                            <style>
+                              /* Force green icon for this specific like button (all states, including disabled) */
+                              div[class*='st-key-{like_key}'] .stButton > button::before,
+                              div[class*='st-key-{like_key}'] .stButton > button:hover::before,
+                              div[class*='st-key-{like_key}'] .stButton > button:disabled::before,
+                              div.element-container.st-key-{like_key} .stButton > button::before,
+                              div.element-container.st-key-{like_key} .stButton > button:hover::before,
+                              div.element-container.st-key-{like_key} .stButton > button:disabled::before {{
+                                background-color: #059669 !important; /* emerald-600 */
+                              }}
+                            </style>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                    if disliked:
+                        st.markdown(
+                            f"""
+                            <style>
+                              /* Force red icon for this specific dislike button (all states, including disabled) */
+                              div[class*='st-key-{dislike_key}'] .stButton > button::before,
+                              div[class*='st-key-{dislike_key}'] .stButton > button:hover::before,
+                              div[class*='st-key-{dislike_key}'] .stButton > button:disabled::before,
+                              div.element-container.st-key-{dislike_key} .stButton > button::before,
+                              div.element-container.st-key-{dislike_key} .stButton > button:hover::before,
+                              div.element-container.st-key-{dislike_key} .stButton > button:disabled::before {{
+                                background-color: #dc2626 !important; /* red-600 */
+                              }}
+                            </style>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+
+                    with meta[1]:
+                        # Order: Like, Dislike, Timestamp (timestamp right-aligned)
+                        grp = st.columns([1, 1, 4])
+                        with grp[0]:
+                            if st.button(" ", key=like_key, help="Like", disabled=disable_like_btn):
+                                # Send reaction over WebSocket (action=1)
+                                try:
+                                    ws_url = _get_ws_url()
+                                    payload = {
+                                        "action": "user_action",
+                                        "sessionId": st.session_state.get("aarya_session_id", ""),
+                                        "route": "general",
+                                        "chatInput": prev_user_text,  # send the original user request
+                                        "msg_id": msg_id_for_resp,
+                                        "knowledge_id": selected_id,
+                                        "knowledge_name": selected_name,
+                                        "name": selected_name,
+                                        "type": "message",
+                                        "message": text,  # send response text
+                                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                                        "client_id": st.session_state.get("aarya_session_id", ""),
+                                        "workflow_id": _get_workflow_id(),
+                                        "action_code": "1",
+                                        "reaction_for": msg_id_for_resp,
+                                    }
+                                    threading.Thread(target=_ws_send_message, args=(ws_url, payload, False), daemon=True).start()
+                                except Exception:
+                                    pass
+                                # Toggle like; only one reaction at a time
+                                cur = st.session_state["chat_histories"][chat_key][i]
+                                if int(cur.get("like", 0)) == 1:
+                                    cur["like"] = 0
+                                    cur["dislike"] = 0
+                                else:
+                                    cur["like"] = 1
+                                    cur["dislike"] = 0
+                                st.rerun()
+                        with grp[1]:
+                            if st.button(" ", key=dislike_key, help="Dislike", disabled=disable_dislike_btn):
+                                # Send reaction over WebSocket (action=2)
+                                try:
+                                    ws_url = _get_ws_url()
+                                    payload = {
+                                        "action": "user_action",
+                                        "sessionId": st.session_state.get("aarya_session_id", ""),
+                                        "route": "general",
+                                        "chatInput": prev_user_text,
+                                        "msg_id": msg_id_for_resp,
+                                        "knowledge_id": selected_id,
+                                        "knowledge_name": selected_name,
+                                        "name": selected_name,
+                                        "type": "message",
+                                        "message": text,
+                                        "timestamp": datetime.utcnow().isoformat(timespec="seconds") + "Z",
+                                        "client_id": st.session_state.get("aarya_session_id", ""),
+                                        "workflow_id": _get_workflow_id(),
+                                        "action_code": "2",
+                                        "reaction_for": msg_id_for_resp,
+                                    }
+                                    threading.Thread(target=_ws_send_message, args=(ws_url, payload, False), daemon=True).start()
+                                except Exception:
+                                    pass
+                                cur = st.session_state["chat_histories"][chat_key][i]
+                                if int(cur.get("dislike", 0)) == 1:
+                                    cur["like"] = 0
+                                    cur["dislike"] = 0
+                                else:
+                                    cur["like"] = 0
+                                    cur["dislike"] = 1
+                                st.rerun()
+                        # Timestamp, right-aligned inside the group
+                        grp[2].markdown(f"<div style='text-align:right' class='chat-ts'>{ts}</div>", unsafe_allow_html=True)
             else:
                 # Escape HTML/XML characters for user messages
                 text_escaped = html.escape(text).replace('\n', '<br>')
@@ -2346,10 +2558,12 @@ elif page == "Aarya":
             
             # Add placeholder for assistant response with typing indicator
             assistant_index = len(st.session_state["chat_histories"][chat_key])
+            resp_msg_id = f"msg_id-{int(time.time()*1000)}"
             st.session_state["chat_histories"][chat_key].append({
                 "role": "assistant",
                 "content": "💬 Typing...",
                 "ts": now,
+                "msg_id": resp_msg_id,
                 "like": 0,
                 "dislike": 0,
             })
@@ -2363,7 +2577,7 @@ elif page == "Aarya":
                     st.session_state["aarya_client_id"] = f"selfcare_{int(time.time()*1000)}_{str(uuid.uuid4().int)[-3:]}"
                 ts = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
                 wid = _get_workflow_id()
-                msg_id = f"msg_id-{int(time.time()*1000)}"
+                msg_id = resp_msg_id
                 payload = {
                     "action": "sendMessage",
                     "sessionId": st.session_state["aarya_session_id"],

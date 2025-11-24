@@ -11,7 +11,8 @@ gatherUsageStats = false
 
 [app]
 admin_users = [
-  "subin.soman@6dtech.co.in" 
+  "subin.soman@6dtech.co.in" ,
+  "anto.joseph@6dtech.co.in"
 ]
 
 [database]
