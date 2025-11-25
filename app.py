@@ -2319,19 +2319,25 @@ elif page == "Aarya":
               div[class*="st-key-chat_"][class*="_dislike_"] button:hover::before {
                 background-color: #374151 !important; /* gray-700 */
               }
-              /* Keep hover clean (no bg/border) */
-              div[class*="st-key-chat_"][class*="_like_"] button:hover,
-              div[class*="st-key-chat_"][class*="_dislike_"] button:hover,
-              div[class*="st-key-chat_"][class*="_like_"] button:focus,
-              div[class*="st-key-chat_"][class*="_dislike_"] button:focus,
-              div[class*="st-key-chat_"][class*="_like_"] button:active,
-              div[class*="st-key-chat_"][class*="_dislike_"] button:active {
+              /* Keep hover clean (no bg/border) - but allow highlight for liked/disliked buttons */
+              div[class*="st-key-chat_"][class*="_like_"] button:hover:not(:disabled),
+              div[class*="st-key-chat_"][class*="_dislike_"] button:hover:not(:disabled),
+              div[class*="st-key-chat_"][class*="_like_"] button:focus:not(:disabled),
+              div[class*="st-key-chat_"][class*="_dislike_"] button:focus:not(:disabled),
+              div[class*="st-key-chat_"][class*="_like_"] button:active:not(:disabled),
+              div[class*="st-key-chat_"][class*="_dislike_"] button:active:not(:disabled) {
                 background: transparent !important;
                 background-color: transparent !important;
                 border: none !important;
                 border-color: transparent !important;
                 box-shadow: none !important;
                 outline: none !important;
+              }
+              /* Highlight disabled buttons (clicked state) with subtle background */
+              div[class*="st-key-chat_"][class*="_like_"] button:disabled,
+              div[class*="st-key-chat_"][class*="_dislike_"] button:disabled {
+                background-color: rgba(0, 0, 0, 0.05) !important;
+                border-radius: 9999px !important;
               }
               /* Timestamp smaller and muted; prevent wrapping */
               .chat-ts { font-size: 0.75rem; color: #6b7280; margin-top: 4px; white-space: nowrap; display: inline-block; }
@@ -2426,41 +2432,6 @@ elif page == "Aarya":
                                 prev_user_text = str(prev_msg.get("content") or "")
                     except Exception:
                         prev_user_text = ""
-                    # Active-state coloring for icons (green for like, red for dislike)
-                    if liked:
-                        st.markdown(
-                            f"""
-                            <style>
-                              /* Force green icon for this specific like button (all states, including disabled) */
-                              div[class*='st-key-{like_key}'] .stButton > button::before,
-                              div[class*='st-key-{like_key}'] .stButton > button:hover::before,
-                              div[class*='st-key-{like_key}'] .stButton > button:disabled::before,
-                              div.element-container.st-key-{like_key} .stButton > button::before,
-                              div.element-container.st-key-{like_key} .stButton > button:hover::before,
-                              div.element-container.st-key-{like_key} .stButton > button:disabled::before {{
-                                background-color: #059669 !important; /* emerald-600 */
-                              }}
-                            </style>
-                            """,
-                            unsafe_allow_html=True,
-                        )
-                    if disliked:
-                        st.markdown(
-                            f"""
-                            <style>
-                              /* Force red icon for this specific dislike button (all states, including disabled) */
-                              div[class*='st-key-{dislike_key}'] .stButton > button::before,
-                              div[class*='st-key-{dislike_key}'] .stButton > button:hover::before,
-                              div[class*='st-key-{dislike_key}'] .stButton > button:disabled::before,
-                              div.element-container.st-key-{dislike_key} .stButton > button::before,
-                              div.element-container.st-key-{dislike_key} .stButton > button:hover::before,
-                              div.element-container.st-key-{dislike_key} .stButton > button:disabled::before {{
-                                background-color: #dc2626 !important; /* red-600 */
-                              }}
-                            </style>
-                            """,
-                            unsafe_allow_html=True,
-                        )
 
                     with meta[1]:
                         # Order: Like, Dislike, Timestamp (timestamp right-aligned)
@@ -2534,6 +2505,96 @@ elif page == "Aarya":
                                 st.rerun()
                         # Timestamp, right-aligned inside the group
                         grp[2].markdown(f"<div style='text-align:right' class='chat-ts'>{ts}</div>", unsafe_allow_html=True)
+                    
+                    # Active-state coloring for icons (green for like, red for dislike) - render AFTER buttons
+                    if liked:
+                        st.markdown(
+                            f"""
+                            <style>
+                              /* Force green icon for this specific like button (all states, including disabled) */
+                              div.element-container.st-key-{like_key} .stButton > button::before,
+                              div[class*="st-key-{like_key}"] .stButton > button::before,
+                              div.element-container.st-key-{like_key} button::before,
+                              div[class*="st-key-{like_key}"] button::before {{
+                                background-color: #059669 !important; /* emerald-600 */
+                              }}
+                              /* Add background highlight for clicked like button */
+                              div.element-container.st-key-{like_key} .stButton > button,
+                              div[class*="st-key-{like_key}"] .stButton > button,
+                              div.element-container.st-key-{like_key} button,
+                              div[class*="st-key-{like_key}"] button {{
+                                background-color: #d1fae5 !important; /* emerald-100 */
+                                background: #d1fae5 !important;
+                                border-radius: 9999px !important;
+                              }}
+                              /* Override any hover/focus/active states for liked button */
+                              div.element-container.st-key-{like_key} .stButton > button:hover,
+                              div.element-container.st-key-{like_key} .stButton > button:focus,
+                              div.element-container.st-key-{like_key} .stButton > button:active,
+                              div.element-container.st-key-{like_key} .stButton > button:disabled,
+                              div[class*="st-key-{like_key}"] .stButton > button:hover,
+                              div[class*="st-key-{like_key}"] .stButton > button:focus,
+                              div[class*="st-key-{like_key}"] .stButton > button:active,
+                              div[class*="st-key-{like_key}"] .stButton > button:disabled,
+                              div.element-container.st-key-{like_key} button:hover,
+                              div.element-container.st-key-{like_key} button:focus,
+                              div.element-container.st-key-{like_key} button:active,
+                              div.element-container.st-key-{like_key} button:disabled,
+                              div[class*="st-key-{like_key}"] button:hover,
+                              div[class*="st-key-{like_key}"] button:focus,
+                              div[class*="st-key-{like_key}"] button:active,
+                              div[class*="st-key-{like_key}"] button:disabled {{
+                                background-color: #d1fae5 !important; /* emerald-100 */
+                                background: #d1fae5 !important;
+                              }}
+                            </style>
+                            """,
+                            unsafe_allow_html=True,
+                        )
+                    if disliked:
+                        st.markdown(
+                            f"""
+                            <style>
+                              /* Force red icon for this specific dislike button (all states, including disabled) */
+                              div.element-container.st-key-{dislike_key} .stButton > button::before,
+                              div[class*="st-key-{dislike_key}"] .stButton > button::before,
+                              div.element-container.st-key-{dislike_key} button::before,
+                              div[class*="st-key-{dislike_key}"] button::before {{
+                                background-color: #dc2626 !important; /* red-600 */
+                              }}
+                              /* Add background highlight for clicked dislike button */
+                              div.element-container.st-key-{dislike_key} .stButton > button,
+                              div[class*="st-key-{dislike_key}"] .stButton > button,
+                              div.element-container.st-key-{dislike_key} button,
+                              div[class*="st-key-{dislike_key}"] button {{
+                                background-color: #fee2e2 !important; /* red-100 */
+                                background: #fee2e2 !important;
+                                border-radius: 9999px !important;
+                              }}
+                              /* Override any hover/focus/active states for disliked button */
+                              div.element-container.st-key-{dislike_key} .stButton > button:hover,
+                              div.element-container.st-key-{dislike_key} .stButton > button:focus,
+                              div.element-container.st-key-{dislike_key} .stButton > button:active,
+                              div.element-container.st-key-{dislike_key} .stButton > button:disabled,
+                              div[class*="st-key-{dislike_key}"] .stButton > button:hover,
+                              div[class*="st-key-{dislike_key}"] .stButton > button:focus,
+                              div[class*="st-key-{dislike_key}"] .stButton > button:active,
+                              div[class*="st-key-{dislike_key}"] .stButton > button:disabled,
+                              div.element-container.st-key-{dislike_key} button:hover,
+                              div.element-container.st-key-{dislike_key} button:focus,
+                              div.element-container.st-key-{dislike_key} button:active,
+                              div.element-container.st-key-{dislike_key} button:disabled,
+                              div[class*="st-key-{dislike_key}"] button:hover,
+                              div[class*="st-key-{dislike_key}"] button:focus,
+                              div[class*="st-key-{dislike_key}"] button:active,
+                              div[class*="st-key-{dislike_key}"] button:disabled {{
+                                background-color: #fee2e2 !important; /* red-100 */
+                                background: #fee2e2 !important;
+                              }}
+                            </style>
+                            """,
+                            unsafe_allow_html=True,
+                        )
             else:
                 # Escape HTML/XML characters for user messages
                 text_escaped = html.escape(text).replace('\n', '<br>')

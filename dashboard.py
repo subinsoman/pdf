@@ -156,12 +156,14 @@ class Dashboard:
             """
             <style>
               .db-section-title { font-size: 1.1rem; font-weight: 600; margin: 4px 0 10px 0; }
-              .kpi-card { background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; padding:14px 16px; box-shadow:0 1px 2px rgba(0,0,0,0.03); }
+              .kpi-card { background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; padding:18px 20px; box-shadow:0 1px 3px rgba(0,0,0,0.05); transition:all 0.2s ease; }
+              .kpi-card:hover { box-shadow:0 4px 12px rgba(0,0,0,0.08); border-color:#d1d5db; }
               .kpi-title { color:#6b7280; font-size:12px; font-weight:600; letter-spacing:.2px; text-transform:uppercase; }
-              .kpi-row { display:flex; align-items:center; justify-content:space-between; margin-top:4px; }
-              .kpi-value { font-size:22px; font-weight:700; color:#111827; }
+              .kpi-row { display:flex; align-items:center; justify-content:space-between; margin-top:8px; }
+              .kpi-value { font-size:24px; font-weight:700; color:#111827; }
               .kpi-sub { font-size:12px; color:#6b7280; }
-              .kpi-icon { font-size:18px; opacity:.9; }
+              .kpi-icon { font-size:20px; opacity:.9; }
+              [data-testid="column"] { gap: 8px !important; }
             </style>
             """,
             unsafe_allow_html=True,
